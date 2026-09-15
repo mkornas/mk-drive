@@ -9,6 +9,16 @@ One card per line, ranked top-down inside each column. `#p0`..`#p3` = priority, 
 
 ## Now
 
+- [ ] *Security: uploaded HTML runs on the drive origin** WebDAV GET serves .html/.svg/.xml inline with the session cookie accepted on /dav, /api/versions/file serves .xml unsandboxed: one header helper (attachment + CSP sandbox + nosniff) for every raw-file response; /dav only app passwords. Audit 2026-09-15 #p0 #security
+- [ ] *Security: session ids readable by scripts** /api/me, /api/login and /api/sessions return the raw cookie value: a separate public session id #p0 #security
+- [ ] *Security: SSO ignores email_verified** require identity.emailVerified, refuse non-ASCII emails #p0 #security
+- [ ] *Security: symlinks escape a location** versions read/restore follow symlinks out, writes follow a final-component symlink, symlinks bypass grants and hidden names, delete acts on the target: realpath containment on every path, O_NOFOLLOW writes, lstat for rm/rename #p0 #security
+- [ ] *Security: SMB name collisions** an SMB name from the email's local part lets a member overwrite another account's SMB password: unique names per drive account #p1 #security
+- [ ] *Security: throttles** concurrent login guesses all evaluated; cf-connecting-ip trusted from any peer (share-password guessing on the LAN, unbounded throttle map): pending-attempt lock, trust the header only from configured peers, per-share unlock throttle, capped map #p1 #security
+- [ ] *Security: upload links unbounded** no size/count/rate limit for anonymous upload links, chunked PATCH without Content-Length writes past the announced size: require Content-Length, count bytes, per-link caps, space check, rate limit #p1 #security
+- [ ] *Security: first-boot setup race** two concurrent /api/setup both become admin: check and insert atomically #p1 #security
+- [ ] *Security: demo lock bypass** /api/%61ccount/password passes the demo lock (checked on the raw URL): check the decoded path — the public demo is affected #p0 #security
+
 ## Next
 
 - [ ] *Datasets page polish** tree indentation by hierarchy, used bar relative to quota, 'Open in the drive' link for location datasets, snapshot count per dataset, delete dataset with typed name once the agent has dataset.destroy #p2 #nas [[datasets-page-polish-tree-indentation-by-hierarchy-used-bar]]
@@ -20,6 +30,12 @@ One card per line, ranked top-down inside each column. `#p0`..`#p3` = priority, 
 - [ ] **iOS app** native SwiftUI app + Files adapter (File Provider) + read-only Storage tab, in its own repo mk-drive-ios; the plan with milestones M0–M7 is docs/ios-app-plan.md — worked on macOS #p2 #ios
 - [ ] **iOS app: say why a home address is refused** when iOS blocks plain http (NSURLErrorAppTransportSecurityRequiresSecureConnection, -1022) — a name like nas.home.arpa is neither an IP, a .local name nor dotless — tell the person to type http://<box>.local:8810 or the IP with the port instead of a generic 'can't connect'; and when a local address times out, mention Local Network permission and that a guest network may not reach the server #p2 #ios
 - [ ] **iOS app: a home and an outside address** the account keeps two server addresses for the same drive (e.g. http://mk-nas.local:8810 and https://drive.example.com), uses the local one when it answers on the current network and the outside one otherwise, re-checked when the network changes; both ends are the same drive, so the app password and the Files adapter's items stay valid; the Files extension follows the same choice #p2 #ios
+- [ ] *Security: CSRF on same-site body-less POSTs** allow only sec-fetch-site same-origin/none or an Origin matching Host on mutations; __Host- cookie prefix on HTTPS #p2 #security
+- [ ] *Security: app passwords survive a password change or reset** revoke them on admin reset (and offer revoke-all on change) #p2 #security
+- [ ] *Security: user-share takeover** a weaker user re-sharing the same path takes over and downgrades an existing share: keep the existing owner #p2 #security
+- [ ] *Security: open redirect in @mk-kit/auth safeNext** /\t/evil passes: reject control characters, parse against the origin (fix in mk-kit, then bump) #p2 #security
+- [ ] *Security: Web Share Target accepts cross-site POSTs** ignore /share POSTs that are not from the installed app #p3 #security
+- [ ] *Security: logout without a session returns 500** sessionOnly reads identity.via on undefined #p3 #bug
 
 ## Later
 
