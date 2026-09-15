@@ -66,6 +66,35 @@ function pick<T extends object>(body: unknown, keys: (keyof T)[]): T {
  * SMB name with write, password set or not. Returns the shares as they are after. An agent older than lists sends no
  * `smbAccess` at all and is left alone.
  */
+/**
+ * Samba does not know the drive's accounts: when one is disabled its SMB name comes off every share list, and when one
+ * is deleted its SMB user goes (the agent drops it from the lists too). Enabling gives nothing back; an admin adds the
+ * account to shares again. Best effort: the account change itself stands when the agent does not answer, and the
+ * audit says so.
+ */
+export async function revokeSmbAccess(
+  nas: NasClient,
+  users: Users,
+  smbName: string,
+  reason: 'disabled' | 'deleted',
+  who: { userId: number | null; email: string },
+): Promise<void> {
+  try {
+    if (reason === 'deleted') {
+      await nas.call('user.remove', { name: smbName });
+      users.audit({ ...who, action: 'nas.smb.revoke', detail: { user: smbName, reason } });
+      return;
+    }
+    for (const s of await nas.call('shares')) {
+      if (!s.smbAccess?.some((a) => a.user === smbName)) continue;
+      await nas.call('share.set', { dataset: s.dataset, smbAccess: s.smbAccess.filter((a) => a.user !== smbName) });
+      users.audit({ ...who, action: 'nas.share.access', detail: { dataset: s.dataset, removed: smbName, reason } });
+    }
+  } catch (e) {
+    users.audit({ ...who, action: 'nas.smb.revoke', detail: { user: smbName, reason, failed: (e as Error).message } });
+  }
+}
+
 export async function migrateShareAccess(nas: NasClient, users: Users, who: { userId: number | null; email: string }): Promise<Share[]> {
   const shares = await nas.call('shares');
   if (!shares.some((s) => s.smb && s.smbAccess === null)) return shares;

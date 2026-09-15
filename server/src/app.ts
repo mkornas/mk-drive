@@ -157,7 +157,7 @@ export async function createApp(cfg: Config, opts: { logger?: boolean } = {}): P
   registerSso(app, cfg, users, sso);
   registerSsoSettingsRoutes(app, cfg, users, settings, sso);
   registerFileRoutes(app, access, locations, users);
-  registerAdminRoutes(app, users, locations);
+  registerAdminRoutes(app, users, locations, nas);
   registerOpRoutes(app, access, locations, users, ops);
   registerUploadRoutes(app, access, locations, users, uploads);
   registerExtraRoutes(app, access, locations, thumbs, db, users);

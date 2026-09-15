@@ -92,6 +92,7 @@ function fakeAgent(path: string): Promise<Server> {
           shares.set(share.dataset, share);
           reply({ ok: true, result: share });
         } else if (req.verb === 'shares') reply({ ok: true, result: [...shares.values()] });
+        else if (req.verb === 'user.remove') reply({ ok: true, result: { removed: String(req.args?.name) } });
         else if (req.verb === 'update' || req.verb === 'update.check' || req.verb === 'update.install')
           reply(
             req.verb === 'update.install' && req.args?.version !== '0.6.0'
@@ -816,5 +817,34 @@ test('an agent that is not there is a 503, not a crash', async () => {
     assert.match(res.json<{ message: string }>().message, /not running/);
   } finally {
     await gone.close();
+  }
+});
+
+test('disabling an account takes its SMB name off every share; enabling gives nothing back; deleting removes its SMB user', async () => {
+  const sam = (await app.inject(json('POST', '/api/users', { email: 'sam@example.com', name: 'Sam', role: 'member', password: PW }, admin))).json<{ id: number }>();
+  shares.set('tank/fam', { dataset: 'tank/fam', name: 'fam', mountpoint: '/srv/locations/fam', smb: true, timeMachine: false, nfs: false, nfsClients: [], smbAccess: [{ user: 'alex', level: 'write' }, { user: 'sam', level: 'read' }], updatedAt: 'now' });
+  shares.set('tank/other', { dataset: 'tank/other', name: 'other', mountpoint: '/srv/locations/other', smb: true, timeMachine: false, nfs: false, nfsClients: [], smbAccess: [{ user: 'alex', level: 'write' }], updatedAt: 'now' });
+  try {
+    seen.length = 0;
+    assert.equal((await app.inject(json('PATCH', `/api/users/${sam.id}`, { disabled: true }, admin))).statusCode, 200);
+    assert.deepEqual(
+      seen.filter((r) => r.verb === 'share.set').map((r) => r.args),
+      [{ dataset: 'tank/fam', smbAccess: [{ user: 'alex', level: 'write' }] }],
+      'only the share that listed sam changes',
+    );
+    assert.deepEqual(shares.get('tank/fam')?.smbAccess, [{ user: 'alex', level: 'write' }]);
+
+    seen.length = 0;
+    assert.equal((await app.inject(json('PATCH', `/api/users/${sam.id}`, { disabled: false }, admin))).statusCode, 200);
+    assert.equal(seen.length, 0, 'enabling calls nothing');
+
+    assert.equal((await app.inject({ method: 'DELETE', url: `/api/users/${sam.id}`, headers: { cookie: admin } })).statusCode, 200);
+    assert.deepEqual(seen.at(-1), { id: seen.at(-1)!.id, verb: 'user.remove', args: { name: 'sam' } });
+    const audit = (await app.inject({ url: '/api/audit', headers: { cookie: admin } })).json<{ action: string; detail: string }[]>();
+    assert.ok(audit.some((e) => e.action === 'nas.share.access' && JSON.parse(e.detail).removed === 'sam'));
+    assert.ok(audit.some((e) => e.action === 'nas.smb.revoke' && JSON.parse(e.detail).reason === 'deleted'));
+  } finally {
+    shares.delete('tank/fam');
+    shares.delete('tank/other');
   }
 });
