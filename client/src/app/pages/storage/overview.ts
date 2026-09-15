@@ -24,6 +24,13 @@ interface Overview {
   power: Power | null;
 }
 
+/** a > b, both X.Y.Z. */
+const newer = (a: string, b: string): boolean => {
+  const [x, y] = [a, b].map((v) => v.split('.').map(Number));
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i];
+  return false;
+};
+
 interface Bay {
   disk: Disk;
   role: 'pool' | 'os' | 'free' | 'other';
@@ -246,7 +253,7 @@ interface Bay {
                   {{ restarting() ? 'The drive is restarting on the new version' : 'Now: ' + u.run!.step }}. This page follows along; nothing needs doing
                   meanwhile.
                 </mk-alert>
-              } @else if (u.run?.state === 'failed' && u.run!.version !== u.current) {
+              } @else if (u.run?.state === 'failed' && u.run!.version === u.latest?.version && u.run!.version !== u.current) {
                 <mk-alert tone="danger" [title]="'Installing mk-nas ' + u.run!.version + ' failed'" class="alert">
                   {{ u.run!.message }} (while {{ u.run!.step }}). mk-nas {{ u.current }} keeps running.
                 </mk-alert>
@@ -669,10 +676,12 @@ export class StorageOverviewPage {
     const parts: string[] = [];
     if (u.run?.state === 'done' && u.run.version === u.current && u.run.finishedAt) parts.push(`mk-nas ${u.current} installed ${ago(ms(u.run.finishedAt))}`);
     if (u.error) parts.push(`the last check failed: ${u.error}`);
+    else if (u.latest && !u.latest.signed && newer(u.latest.version, u.current))
+      parts.push(`mk-nas ${u.latest.version} is out but not signed, so it is not installed from here`);
     else if (!u.available && u.latest) parts.push('up to date');
     parts.push(u.checkedAt ? `checked ${ago(ms(u.checkedAt))}` : 'not checked yet');
     const line = parts.join(' · ');
-    return line.charAt(0).toUpperCase() + line.slice(1);
+    return line.startsWith('mk-') ? line : line.charAt(0).toUpperCase() + line.slice(1);
   }
 
   async check(): Promise<void> {
