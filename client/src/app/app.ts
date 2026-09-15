@@ -197,7 +197,12 @@ const SETTINGS: SettingsLink[] = [
             }
           }
           @if (!collapsed() && drive.meta(); as meta) {
-            <div class="about muted" [title]="'build ' + meta.build">{{ meta.app }} {{ meta.version }}</div>
+            <div class="about muted">
+              <span [title]="'build ' + meta.build">{{ meta.app }} {{ meta.version }}</span>
+              @if (meta.nasAgent) {
+                <span>mk-nas {{ meta.nasAgent }}</span>
+              }
+            </div>
           }
         </mk-nav-list>
 
@@ -230,6 +235,8 @@ const SETTINGS: SettingsLink[] = [
         margin-top: auto;
         padding: var(--mk-space-3) var(--mk-space-4);
         font-size: var(--mk-font-size-xs);
+        display: grid;
+        gap: 2px;
       }
       .hdr__brand {
         display: inline-flex;

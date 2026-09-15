@@ -205,6 +205,8 @@ export interface Meta {
   nas?: boolean;
   /** NAS mode: the agent speaks an older verb contract than this drive was built for; the Storage pages may misbehave until mk-nas is upgraded. */
   nasOutdated?: { agent: string; contract: number; needs: number };
+  /** NAS mode, signed in: the mk-nas agent's version, for the foot of the sidebar. */
+  nasAgent?: string;
 }
 
 export interface Health {

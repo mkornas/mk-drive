@@ -1,5 +1,5 @@
 import { NAS_CONTRACT, type NasClient } from '../nas.ts';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Config } from '../config.ts';
 import { type Auth, clearSessionCookie, clientIp, passwordLoginAllowed, setSessionCookie } from '../auth.ts';
 import { PASSWORD_MIN, verifyPassword, type Users } from '../users.ts';
@@ -48,6 +48,10 @@ export function registerAccountRoutes(
     return v && v.contract < NAS_CONTRACT ? { agent: v.agent, contract: v.contract, needs: NAS_CONTRACT } : undefined;
   };
 
+  /** The agent's version for a signed-in person's sidebar; strangers are not told what runs here. */
+  const agentVersion = async (req: FastifyRequest): Promise<string | undefined> =>
+    nas && req.identity ? ((await nas.cachedVersion())?.agent ?? undefined) : undefined;
+
   app.get('/api/meta', async (req): Promise<Meta> => ({
     app: cfg.app,
     version: cfg.version,
@@ -61,6 +65,7 @@ export function registerAccountRoutes(
     passwordLogin: passwordLoginAllowed(req, cfg),
     nas: cfg.nasSocket ? true : undefined,
     nasOutdated: await outdated(),
+    nasAgent: await agentVersion(req),
   }));
 
   app.get('/api/me', async (req): Promise<Identity> => req.identity);

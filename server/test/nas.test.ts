@@ -235,9 +235,11 @@ after(async () => {
   await rm(base, { recursive: true, force: true });
 });
 
-test('meta says whether NAS mode is on', async () => {
+test('meta says whether NAS mode is on, and the agent version to someone signed in', async () => {
   const on = (await app.inject({ url: '/api/meta', headers: { cookie: admin } })).json<Meta>();
   assert.equal(on.nas, true);
+  assert.equal(on.nasAgent, agentVersion, "the agent's version for the sidebar");
+  assert.equal((await app.inject({ url: '/api/meta' })).json<Meta>().nasAgent, undefined, 'not told to someone signed out');
   const off = (await plain.inject({ url: '/api/meta' })).json<Meta>();
   assert.equal(off.nas, undefined);
 });
