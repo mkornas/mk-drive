@@ -18,6 +18,8 @@ import type { Users } from './users.ts';
 declare module 'fastify' {
   interface FastifyRequest {
     identity: Identity;
+    /** The secret id of the session cookie in use, for sign-out and "the other sessions"; never sent to the client. */
+    sessionId?: string;
     /** Why a presented credential was refused (shown on the login page). */
     authReason?: string;
   }
@@ -87,24 +89,54 @@ export function isTrusted(ip: string, cidrs: string[]): boolean {
   return cidrs.some((c) => ipInCidr(ip, c));
 }
 
-/** The real client address: Cloudflare's header, else X-Forwarded-For only when a trusted proxy sent it. */
+/**
+ * The real client address: Cloudflare's header, else X-Forwarded-For — either only when a trusted proxy sent it
+ * (anyone can write the header; from an untrusted peer it would buy a fresh throttle key per request).
+ */
 export function clientIp(req: FastifyRequest, cidrs: string[]): string {
+  const peer = req.socket.remoteAddress ?? '';
+  if (!isTrusted(peer, cidrs)) return peer;
   const cf = req.headers['cf-connecting-ip'];
   if (typeof cf === 'string' && isIP(cf)) return cf;
-  const peer = req.socket.remoteAddress ?? '';
   const xff = req.headers['x-forwarded-for'];
-  if (typeof xff === 'string' && isTrusted(peer, cidrs)) {
+  if (typeof xff === 'string') {
     const first = xff.split(',')[0].trim();
     if (isIP(first)) return first;
   }
   return peer;
 }
 
+/**
+ * The path a guard should judge: the route that matched (what will run), else the decoded path. A raw `req.url`
+ * check is fooled by `/%61pi/…`, which the router decodes to `/api/…`. Null when the path does not decode.
+ */
+export function routePath(req: FastifyRequest): string | null {
+  if (req.routeOptions.url) return req.routeOptions.url;
+  try {
+    return decodeURIComponent(req.url.split('?')[0]);
+  } catch {
+    return null;
+  }
+}
+
+const isDav = (path: string) => path === '/dav' || path.startsWith('/dav/');
+
 // ---------- login throttle & helpers ----------
 
-/** Slows down password guessing: a growing pause per source address after failures. */
+/** Failures older than this (after their pause) are forgotten. */
+const FORGET_MS = 15 * 60_000;
+
+/** Slows down password guessing: a growing pause per key (address, email) after failures. */
 export class LoginThrottle {
+  /** In order of the last failure, oldest first (a failure moves its key to the end). */
   private readonly failures = new Map<string, { count: number; until: number }>();
+  /** Keys with an attempt being checked right now. */
+  private readonly pending = new Set<string>();
+  private readonly maxKeys: number;
+
+  constructor(maxKeys = 10_000) {
+    this.maxKeys = maxKeys;
+  }
 
   /** Milliseconds the caller must still wait, 0 when allowed. */
   retryAfter(ip: string, now = Date.now()): number {
@@ -112,15 +144,49 @@ export class LoginThrottle {
     return f && f.until > now ? f.until - now : 0;
   }
 
+  /**
+   * Claims the keys for one attempt checked asynchronously: 0 when claimed (then `end` them once it is judged),
+   * else the milliseconds to wait. A key with an attempt still in flight waits too, so a concurrent burst
+   * is judged one attempt at a time instead of all slipping past the check.
+   */
+  begin(keys: string[], now = Date.now()): number {
+    const wait = Math.max(0, ...keys.map((k) => this.retryAfter(k, now)));
+    if (wait > 0) return wait;
+    if (keys.some((k) => this.pending.has(k))) return 1000;
+    for (const k of keys) this.pending.add(k);
+    return 0;
+  }
+
+  end(keys: string[]): void {
+    for (const k of keys) this.pending.delete(k);
+  }
+
   failed(ip: string, now = Date.now()): void {
-    const f = this.failures.get(ip) ?? { count: 0, until: 0 };
+    let f = this.failures.get(ip);
+    if (f && f.until + FORGET_MS < now) f = undefined;
+    f ??= { count: 0, until: 0 };
     f.count += 1;
     f.until = now + Math.min(30_000, 1000 * 2 ** Math.min(f.count - 1, 5));
+    this.failures.delete(ip);
     this.failures.set(ip, f);
+    this.prune(now);
   }
 
   succeeded(ip: string): void {
     this.failures.delete(ip);
+  }
+
+  /** Drops forgotten keys, then the oldest ones past the cap (made-up emails must not grow the map without end). */
+  private prune(now: number): void {
+    if (this.failures.size <= this.maxKeys) return;
+    for (const [k, f] of this.failures) {
+      if (f.until + FORGET_MS >= now) break;
+      this.failures.delete(k);
+    }
+    for (const k of this.failures.keys()) {
+      if (this.failures.size <= this.maxKeys) break;
+      this.failures.delete(k);
+    }
   }
 }
 
@@ -134,6 +200,11 @@ export function cookie(req: FastifyRequest, name: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Whether the request came through Cloudflare, from its headers alone, whoever the peer is. Only ever used to
+ * refuse or restrict (no password form, no tunnel changes, a Secure cookie): a client that fakes the headers
+ * only holds itself back.
+ */
 export function viaCloudflare(req: FastifyRequest): boolean {
   return viaCf(req.headers);
 }
@@ -167,7 +238,9 @@ export function createAuth(cfg: Config, users: Users): Auth {
   const throttle = new LoginThrottle();
 
   const identify = async (req: FastifyRequest): Promise<Identity | null> => {
-    if (verifier) {
+    // WebDAV takes an app password only: a file it serves opens in the browser, which must not sign it in by itself
+    const dav = isDav(routePath(req) ?? '');
+    if (verifier && !dav) {
       const token = accessTokenFrom(req.headers);
       if (token) {
         try {
@@ -181,13 +254,17 @@ export function createAuth(cfg: Config, users: Users): Auth {
         }
       }
     }
-    const sid = cookie(req, SESSION_COOKIE);
+    const sid = dav ? undefined : cookie(req, SESSION_COOKIE);
     if (sid) {
       const s = users.session(sid);
-      if (s) return { id: s.user.id, email: s.user.email, name: s.user.name, role: s.user.role, via: 'session', sessionId: s.session.id };
+      if (s) {
+        req.sessionId = s.session.id;
+        return { id: s.user.id, email: s.user.email, name: s.user.name, role: s.user.role, via: 'session' };
+      }
     }
     const cred = bearerFrom(req.headers);
     if (cred) {
+      // no await between the check and the verdict below, so a concurrent burst cannot slip past it
       const ip = clientIp(req, cfg.trustedProxies);
       if (throttle.retryAfter(`token:${ip}`) > 0) {
         req.authReason = 'too many attempts, wait a moment';
@@ -215,9 +292,11 @@ const OPEN = new Set(['/api/health', '/api/meta', '/api/login', '/api/logout', '
 export function registerAuth(app: FastifyInstance, auth: Auth): void {
   app.decorateRequest('identity', undefined as unknown as Identity);
   app.decorateRequest('authReason', undefined);
+  app.decorateRequest('sessionId', undefined);
   app.addHook('onRequest', async (req, reply) => {
-    const path = req.url.split('?')[0];
-    const dav = path === '/dav' || path.startsWith('/dav/');
+    const path = routePath(req);
+    if (path === null) return reply.code(400).send({ ok: false, message: 'bad path' });
+    const dav = isDav(path);
     if (!path.startsWith('/api/') && !dav) return;
     if (dav) {
       if (req.method === 'OPTIONS') return; // clients probe before they authenticate
@@ -226,7 +305,10 @@ export function registerAuth(app: FastifyInstance, auth: Auth): void {
         req.identity = id;
         return;
       }
-      return reply.code(401).header('WWW-Authenticate', 'Basic realm="mk-drive", charset="UTF-8"').send(req.authReason ?? 'sign in with your email and an app password');
+      return reply
+        .code(401)
+        .header('WWW-Authenticate', 'Basic realm="mk-drive", charset="UTF-8"')
+        .send(req.authReason ?? 'sign in with your email and an app password');
     }
     if (path.startsWith('/api/s/')) {
       // public share links carry their own checks; still attach an identity when there is one

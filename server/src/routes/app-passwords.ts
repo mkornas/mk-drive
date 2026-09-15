@@ -12,9 +12,9 @@ import { badRequest, forbidden, notFound } from '../errors.ts';
 import type { AppPasswordRow, Users } from '../users.ts';
 import type { AppPassword, AppPasswordCreated } from '../../../shared/types.ts';
 
-/** Account-level routes refuse an app password: only a session (or an Access identity) may use them. */
+/** Account-level routes refuse an app password: only a session (or an Access identity) may use them. Nobody signed in passes (the route decides). */
 export function sessionOnly(req: FastifyRequest): void {
-  if (req.identity.via === 'token') throw forbidden('sign in with a browser to manage the account');
+  if (req.identity?.via === 'token') throw forbidden('sign in with a browser to manage the account');
 }
 
 export function registerAppPasswordRoutes(app: FastifyInstance, users: Users): void {

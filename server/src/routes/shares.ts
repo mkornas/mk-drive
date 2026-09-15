@@ -17,7 +17,8 @@ import { hashPassword, verifyPassword, type Users } from '../users.ts';
 import { cookie, isSecure, type LoginThrottle, clientIp } from '../auth.ts';
 import { type DrivePath, joinDrivePath, parseDrivePath } from '../paths.ts';
 import { entryOf, etagOf } from '../entries.ts';
-import { isText, mimeOf } from '../mime.ts';
+import { mimeOf } from '../mime.ts';
+import { contentDisposition, fileHeaders } from '../serve-headers.ts';
 import { badRequest, forbidden, HttpError, notFound } from '../errors.ts';
 import { parseRange } from './files.ts';
 import { checkName, type Ops, withPolicy } from '../ops.ts';
@@ -37,22 +38,70 @@ interface ShareRow {
   created_at: number;
   hits: number;
   last_hit_at: number | null;
+  uploaded_files: number;
+  uploaded_bytes: number;
 }
 
-const SANDBOXED = new Set(['text/html', 'image/svg+xml', 'application/xml', 'application/xhtml+xml']);
+/** What one file-request link takes in over its life (pieces still on the way count by their announced size). */
+export const LINK_MAX_BYTES = 10 * 1024 ** 3;
+export const LINK_MAX_FILES = 1000;
+/** Free space an anonymous upload must leave on the filesystem. */
+export const SPACE_RESERVE = 256 * 1024 ** 2;
+/** Uploads a visitor may start through one link per minute. */
+export const BEGIN_PER_MINUTE = 120;
 
-function contentDisposition(kind: 'inline' | 'attachment', name: string): string {
-  const ascii = name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
-  return `${kind}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+/** Fixed-window counter: at most `limit` hits per `windowMs` per key. */
+export class RateLimit {
+  private readonly hits = new Map<string, { count: number; reset: number }>();
+  private readonly limit: number;
+  private readonly windowMs: number;
+  constructor(limit: number, windowMs: number) {
+    this.limit = limit;
+    this.windowMs = windowMs;
+  }
+  /** Counts a hit; milliseconds to wait when over the limit, 0 when allowed. */
+  take(key: string, now = Date.now()): number {
+    if (this.hits.size > 10_000) for (const [k, v] of this.hits) if (v.reset <= now) this.hits.delete(k);
+    let h = this.hits.get(key);
+    if (!h || h.reset <= now) this.hits.set(key, (h = { count: 0, reset: now + this.windowMs }));
+    if (h.count >= this.limit) return h.reset - now;
+    h.count += 1;
+    return 0;
+  }
 }
 
-export function registerShareRoutes(app: FastifyInstance, cfg: Config, access: Access, locations: Locations, users: Users, ops: Ops, thumbs: Thumbs, throttle: LoginThrottle, db: DatabaseSync, uploads: Uploads): void {
-  const secret = createHmac('sha256', 'mk-drive share cookie').update(cfg.dbFile + (cfg.adminEmail || '') + String(db.prepare('SELECT MIN(created_at) AS t FROM users').get()?.t ?? '')).digest();
+export function registerShareRoutes(
+  app: FastifyInstance,
+  cfg: Config,
+  access: Access,
+  locations: Locations,
+  users: Users,
+  ops: Ops,
+  thumbs: Thumbs,
+  throttle: LoginThrottle,
+  db: DatabaseSync,
+  uploads: Uploads,
+): void {
+  const secret = createHmac('sha256', 'mk-drive share cookie')
+    .update(cfg.dbFile + (cfg.adminEmail || '') + String(db.prepare('SELECT MIN(created_at) AS t FROM users').get()?.t ?? ''))
+    .digest();
   const unlockToken = (row: ShareRow) => createHmac('sha256', secret).update(`${row.id}|${row.password_hash}`).digest('base64url');
   const cookieName = (id: string) => `mkdrive_share_${id}`;
 
   const get = (id: string): ShareRow | null => (db.prepare('SELECT * FROM shares WHERE id = ?').get(id) as unknown as ShareRow | undefined) ?? null;
-  const toShare = (r: ShareRow, name: string, by: string): Share => ({ id: r.id, path: r.path, name, kind: r.kind, mode: r.mode, locked: !!r.password_hash, expiresAt: r.expires_at, createdAt: r.created_at, createdBy: by, hits: r.hits, lastHitAt: r.last_hit_at });
+  const toShare = (r: ShareRow, name: string, by: string): Share => ({
+    id: r.id,
+    path: r.path,
+    name,
+    kind: r.kind,
+    mode: r.mode,
+    locked: !!r.password_hash,
+    expiresAt: r.expires_at,
+    createdAt: r.created_at,
+    createdBy: by,
+    hits: r.hits,
+    lastHitAt: r.last_hit_at,
+  });
 
   /** The share's root, resolved with the *owner's* current grant (write, for a file request); dead links read as 404. */
   const root = (row: ShareRow): { loc: Mounted; dp: DrivePath } => {
@@ -88,13 +137,17 @@ export function registerShareRoutes(app: FastifyInstance, cfg: Config, access: A
   // ---------- owner side ----------
 
   app.get('/api/shares', async (req): Promise<Share[]> => {
-    const rows = (req.identity.role === 'admin' ? db.prepare('SELECT * FROM shares ORDER BY created_at DESC').all() : db.prepare('SELECT * FROM shares WHERE user_id = ? ORDER BY created_at DESC').all(req.identity.id)) as unknown as ShareRow[];
+    const rows = (req.identity.role === 'admin'
+      ? db.prepare('SELECT * FROM shares ORDER BY created_at DESC').all()
+      : db.prepare('SELECT * FROM shares WHERE user_id = ? ORDER BY created_at DESC').all(req.identity.id)) as unknown as ShareRow[];
     return rows.map((r) => toShare(r, r.path.split('/').pop() ?? r.path, users.get(r.user_id)?.email ?? '?'));
   });
 
   app.get<{ Querystring: { path?: string } }>('/api/shares/for', async (req): Promise<Share[]> => {
     const { dp } = access.resolve(req, req.query.path);
-    const rows = db.prepare('SELECT * FROM shares WHERE path = ? AND (user_id = ? OR ? = 1) ORDER BY created_at DESC').all(dp.path, req.identity.id, req.identity.role === 'admin' ? 1 : 0) as unknown as ShareRow[];
+    const rows = db
+      .prepare('SELECT * FROM shares WHERE path = ? AND (user_id = ? OR ? = 1) ORDER BY created_at DESC')
+      .all(dp.path, req.identity.id, req.identity.role === 'admin' ? 1 : 0) as unknown as ShareRow[];
     return rows.map((r) => toShare(r, dp.segments[dp.segments.length - 1] ?? dp.location, users.get(r.user_id)?.email ?? '?'));
   });
 
@@ -110,9 +163,37 @@ export function registerShareRoutes(app: FastifyInstance, cfg: Config, access: A
     if (expiresAt !== null && (!Number.isFinite(expiresAt) || expiresAt < Date.now())) throw badRequest('the expiry must be in the future');
     const password = typeof req.body?.password === 'string' && req.body.password ? req.body.password : null;
     if (password && password.length < 4) throw badRequest('a link password needs at least 4 characters');
-    const row: ShareRow = { id: randomBytes(15).toString('base64url'), user_id: req.identity.id, path: dp.path, kind: st.kind, mode, password_hash: password ? await hashPassword(password) : null, expires_at: expiresAt, created_at: Date.now(), hits: 0, last_hit_at: null };
-    db.prepare('INSERT INTO shares (id, user_id, path, kind, mode, password_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(row.id, row.user_id, row.path, row.kind, row.mode, row.password_hash, row.expires_at, row.created_at);
-    users.audit({ userId: req.identity.id, email: req.identity.email, action: 'share.create', path: dp.path, detail: { id: row.id, mode, locked: !!password, expiresAt } });
+    const row: ShareRow = {
+      id: randomBytes(15).toString('base64url'),
+      user_id: req.identity.id,
+      path: dp.path,
+      kind: st.kind,
+      mode,
+      password_hash: password ? await hashPassword(password) : null,
+      expires_at: expiresAt,
+      created_at: Date.now(),
+      hits: 0,
+      last_hit_at: null,
+      uploaded_files: 0,
+      uploaded_bytes: 0,
+    };
+    db.prepare('INSERT INTO shares (id, user_id, path, kind, mode, password_hash, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+      row.id,
+      row.user_id,
+      row.path,
+      row.kind,
+      row.mode,
+      row.password_hash,
+      row.expires_at,
+      row.created_at,
+    );
+    users.audit({
+      userId: req.identity.id,
+      email: req.identity.email,
+      action: 'share.create',
+      path: dp.path,
+      detail: { id: row.id, mode, locked: !!password, expiresAt },
+    });
     reply.code(201);
     return toShare(row, dp.segments[dp.segments.length - 1], req.identity.email);
   });
@@ -139,25 +220,45 @@ export function registerShareRoutes(app: FastifyInstance, cfg: Config, access: A
     const st = await loc.provider.stat(dp.segments);
     if (!st) throw notFound();
     const name = dp.segments[dp.segments.length - 1];
-    return { id: row.id, name, kind: st.kind, mode: row.mode, locked: !!row.password_hash, open: isOpen(req, row), expiresAt: row.expires_at, size: st.size, mtime: st.mtime, mime: st.kind === 'dir' ? '' : mimeOf(name) };
+    return {
+      id: row.id,
+      name,
+      kind: st.kind,
+      mode: row.mode,
+      locked: !!row.password_hash,
+      open: isOpen(req, row),
+      expiresAt: row.expires_at,
+      size: st.size,
+      mtime: st.mtime,
+      mime: st.kind === 'dir' ? '' : mimeOf(name),
+    };
   });
 
   app.post<{ Params: { id: string }; Body: { password?: unknown } }>('/api/s/:id/unlock', async (req, reply) => {
     const row = share(req);
     root(row);
     if (!row.password_hash) return { ok: true };
-    const ip = clientIp(req, cfg.trustedProxies);
-    const wait = throttle.retryAfter(`share:${ip}`);
+    // per link and address, and a budget for the link itself so a pool of addresses guesses no faster
+    const ipKey = `share:${row.id}:${clientIp(req, cfg.trustedProxies)}`;
+    const linkKey = `share:${row.id}`;
+    const keys = [ipKey, linkKey];
+    // claimed before the check, so a concurrent burst is judged one guess at a time
+    const wait = throttle.begin(keys);
     if (wait > 0) {
       reply.header('Retry-After', String(Math.ceil(wait / 1000)));
       throw new HttpError(429, `too many attempts, wait ${Math.ceil(wait / 1000)} s`);
     }
     const given = typeof req.body?.password === 'string' ? req.body.password : '';
-    if (!given || !(await verifyPassword(given, row.password_hash))) {
-      throttle.failed(`share:${ip}`);
-      throw new HttpError(401, 'wrong password');
+    const hash = row.password_hash;
+    let right = false;
+    try {
+      right = given !== '' && (await verifyPassword(given, hash));
+      if (right) throttle.succeeded(ipKey);
+      else for (const k of keys) throttle.failed(k);
+    } finally {
+      throttle.end(keys);
     }
-    throttle.succeeded(`share:${ip}`);
+    if (!right) throw new HttpError(401, 'wrong password');
     const attrs = [`${cookieName(row.id)}=${unlockToken(row)}`, `Path=/api/s/${row.id}`, 'HttpOnly', 'SameSite=Lax', 'Max-Age=86400'];
     if (isSecure(req)) attrs.push('Secure');
     reply.header('Set-Cookie', attrs.join('; '));
@@ -180,7 +281,14 @@ export function registerShareRoutes(app: FastifyInstance, cfg: Config, access: A
     }
     entries.sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }) : a.kind === 'dir' ? -1 : 1));
     hit(row);
-    return { path: rel.join('/'), location: row.id, dir: { ...entryOf(dp.location, dp.segments, st), path: rel.join('/') }, entries, hiddenOmitted: false, access: 'read' };
+    return {
+      path: rel.join('/'),
+      location: row.id,
+      dir: { ...entryOf(dp.location, dp.segments, st), path: rel.join('/') },
+      entries,
+      hiddenOmitted: false,
+      access: 'read',
+    };
   });
 
   const sendFile = async (req: FastifyRequest, reply: FastifyReply, loc: Mounted, segments: readonly string[], download: boolean) => {
@@ -188,16 +296,12 @@ export function registerShareRoutes(app: FastifyInstance, cfg: Config, access: A
     if (!st) throw notFound();
     if (st.kind === 'dir') throw badRequest('is a directory');
     const name = segments[segments.length - 1];
-    const mime = mimeOf(name);
     const etag = etagOf(st);
     reply.header('ETag', etag);
     reply.header('Last-Modified', new Date(st.mtime).toUTCString());
     reply.header('Accept-Ranges', 'bytes');
     reply.header('Cache-Control', 'private, no-cache');
-    reply.header('X-Content-Type-Options', 'nosniff');
-    reply.header('Content-Type', isText(mime) ? `${mime}; charset=utf-8` : mime);
-    reply.header('Content-Disposition', contentDisposition(download ? 'attachment' : 'inline', name));
-    if (SANDBOXED.has(mime)) reply.header('Content-Security-Policy', 'sandbox');
+    fileHeaders(reply, name, { disposition: download ? 'attachment' : 'inline', preview: true });
     if (req.headers['if-none-match'] === etag) return reply.code(304).send();
     const range = parseRange(req.headers.range, st.size);
     if (range === null) {
@@ -276,21 +380,61 @@ export function registerShareRoutes(app: FastifyInstance, cfg: Config, access: A
   };
 
   // the visitor never learns what the folder holds, so `exists` is always false here
-  const progress = async (loc: Mounted, up: UploadRow): Promise<UploadStatus> => ({ id: up.id, path: up.dest.split('/').pop() ?? '', size: up.size, received: (await loc.provider.uploadSize(up.id)) ?? 0, exists: false });
-
-  app.post<{ Params: { id: string }; Body: { name?: unknown; size?: unknown; mtime?: unknown } }>('/api/s/:id/uploads', async (req, reply): Promise<UploadStatus> => {
-    const { row, loc, dp } = await dropbox(req);
-    const name = checkName(req.body?.name);
-    const size = Number(req.body?.size);
-    if (!Number.isInteger(size) || size < 0) throw badRequest('size must be a whole number of bytes');
-    if (name.startsWith('.') || locations.isHidden(loc, [...dp.segments, name])) throw badRequest('that name is reserved');
-    const id = randomBytes(18).toString('base64url');
-    await loc.provider.uploadBegin(id);
-    const mtime = Number(req.body?.mtime);
-    uploads.create({ id, user_id: row.user_id, location: loc.cfg.name, dest: joinDrivePath(dp.location, [...dp.segments, name]), size, mtime: Number.isFinite(mtime) && mtime > 0 ? mtime : null, share_id: row.id });
-    reply.code(201);
-    return { id, path: name, size, received: 0, exists: false };
+  const progress = async (loc: Mounted, up: UploadRow): Promise<UploadStatus> => ({
+    id: up.id,
+    path: up.dest.split('/').pop() ?? '',
+    size: up.size,
+    received: (await loc.provider.uploadSize(up.id)) ?? 0,
+    exists: false,
   });
+
+  const begins = new RateLimit(BEGIN_PER_MINUTE, 60_000);
+
+  app.post<{ Params: { id: string }; Body: { name?: unknown; size?: unknown; mtime?: unknown } }>(
+    '/api/s/:id/uploads',
+    async (req, reply): Promise<UploadStatus> => {
+      const { row, loc, dp } = await dropbox(req);
+      const wait = begins.take(`${row.id}:${clientIp(req, cfg.trustedProxies)}`);
+      if (wait > 0) {
+        reply.header('Retry-After', String(Math.ceil(wait / 1000)));
+        throw new HttpError(429, `too many uploads at once, wait ${Math.ceil(wait / 1000)} s`);
+      }
+      const name = checkName(req.body?.name);
+      const size = Number(req.body?.size);
+      if (!Number.isInteger(size) || size < 0) throw badRequest('size must be a whole number of bytes');
+      if (name.startsWith('.') || locations.isHidden(loc, [...dp.segments, name])) throw badRequest('that name is reserved');
+      if (size > LINK_MAX_BYTES) throw new HttpError(413, `this link takes at most ${LINK_MAX_BYTES / 1024 ** 3} GiB`);
+      const space = await loc.provider.space().catch(() => null);
+      if (space && size > space.free - SPACE_RESERVE) throw new HttpError(507, 'not enough free space for this file');
+      // checked and recorded with no await in between, so parallel starts cannot both squeeze under the limits
+      const used = db
+        .prepare(
+          'SELECT s.uploaded_files + COUNT(u.id) AS files, s.uploaded_bytes + COALESCE(SUM(u.size), 0) AS bytes FROM shares s LEFT JOIN uploads u ON u.share_id = s.id WHERE s.id = ?',
+        )
+        .get(row.id) as { files: number; bytes: number };
+      if (used.files + 1 > LINK_MAX_FILES) throw new HttpError(413, `this link takes at most ${LINK_MAX_FILES} files`);
+      if (used.bytes + size > LINK_MAX_BYTES) throw new HttpError(413, `this link takes at most ${LINK_MAX_BYTES / 1024 ** 3} GiB`);
+      const id = randomBytes(18).toString('base64url');
+      const mtime = Number(req.body?.mtime);
+      uploads.create({
+        id,
+        user_id: row.user_id,
+        location: loc.cfg.name,
+        dest: joinDrivePath(dp.location, [...dp.segments, name]),
+        size,
+        mtime: Number.isFinite(mtime) && mtime > 0 ? mtime : null,
+        share_id: row.id,
+      });
+      try {
+        await loc.provider.uploadBegin(id);
+      } catch (e) {
+        uploads.remove(id);
+        throw e;
+      }
+      reply.code(201);
+      return { id, path: name, size, received: 0, exists: false };
+    },
+  );
 
   app.get<{ Params: { id: string; uid: string } }>('/api/s/:id/uploads/:uid', async (req): Promise<UploadStatus> => {
     const { row, loc } = await dropbox(req);
@@ -311,11 +455,23 @@ export function registerShareRoutes(app: FastifyInstance, cfg: Config, access: A
     if (received !== up.size) throw badRequest(`upload incomplete: ${received} of ${up.size} bytes`);
     const name = up.dest.split('/').pop() ?? '';
     // a visitor never replaces anything: a taken name gets a numbered sibling
-    const final = await withPolicy(name, 'rename', async (n) => (await loc.provider.stat([...dp.segments, n])) !== null, (n, replace) => loc.provider.uploadCommit(up.id, [...dp.segments, n], { replace, mtime: up.mtime ?? undefined }));
+    const final = await withPolicy(
+      name,
+      'rename',
+      async (n) => (await loc.provider.stat([...dp.segments, n])) !== null,
+      (n, replace) => loc.provider.uploadCommit(up.id, [...dp.segments, n], { replace, mtime: up.mtime ?? undefined }),
+    );
     uploads.remove(up.id);
+    db.prepare('UPDATE shares SET uploaded_files = uploaded_files + 1, uploaded_bytes = uploaded_bytes + ? WHERE id = ?').run(up.size, row.id);
     hit(row);
     const owner = users.get(row.user_id);
-    users.audit({ userId: row.user_id, email: owner?.email ?? '?', action: 'upload', path: joinDrivePath(dp.location, [...dp.segments, final]), detail: { size: up.size, link: row.id } });
+    users.audit({
+      userId: row.user_id,
+      email: owner?.email ?? '?',
+      action: 'upload',
+      path: joinDrivePath(dp.location, [...dp.segments, final]),
+      detail: { size: up.size, link: row.id },
+    });
     return { ok: true, name: final };
   });
 

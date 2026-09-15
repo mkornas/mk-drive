@@ -4,7 +4,7 @@ import type { Access } from '../access.ts';
 import type { Users } from '../users.ts';
 import { parsePolicy, withPolicy } from '../ops.ts';
 import { badRequest, notFound } from '../errors.ts';
-import { isText, mimeOf } from '../mime.ts';
+import { fileHeaders } from '../serve-headers.ts';
 import { joinDrivePath } from '../paths.ts';
 import type { Version } from '../../../shared/types.ts';
 
@@ -39,19 +39,14 @@ export function registerVersionRoutes(app: FastifyInstance, access: Access, user
     const snapshot = req.query.snapshot ?? '';
     if (!snapshot) throw badRequest('snapshot is required');
     const name = dp.segments[dp.segments.length - 1] ?? '';
-    const mime = mimeOf(name);
     let stream;
     try {
       stream = await loc.provider.readVersion(snapshot, dp.segments);
     } catch {
       throw notFound('no such version');
     }
-    reply.header('Content-Type', isText(mime) ? `${mime}; charset=utf-8` : mime);
     reply.header('Cache-Control', 'private, no-cache');
-    reply.header('X-Content-Type-Options', 'nosniff');
-    const ascii = name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
-    reply.header('Content-Disposition', `${req.query.download === '1' ? 'attachment' : 'inline'}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`);
-    if (mime === 'text/html' || mime === 'image/svg+xml') reply.header('Content-Security-Policy', 'sandbox');
+    fileHeaders(reply, name, { disposition: req.query.download === '1' ? 'attachment' : 'inline' });
     return reply.send(stream);
   });
 
@@ -62,15 +57,20 @@ export function registerVersionRoutes(app: FastifyInstance, access: Access, user
     const dir = dp.segments.slice(0, -1);
     const name = dp.segments[dp.segments.length - 1];
     const policy = parsePolicy(req.body?.onConflict);
-    const final = await withPolicy(name, policy === 'fail' ? 'rename' : policy, async (n) => (await loc.provider.stat([...dir, n])) !== null, async (n, replace) => {
-      let stream;
-      try {
-        stream = await loc.provider.readVersion(snapshot, dp.segments);
-      } catch {
-        throw notFound('no such version');
-      }
-      await loc.provider.write([...dir, n], stream, { replace });
-    });
+    const final = await withPolicy(
+      name,
+      policy === 'fail' ? 'rename' : policy,
+      async (n) => (await loc.provider.stat([...dir, n])) !== null,
+      async (n, replace) => {
+        let stream;
+        try {
+          stream = await loc.provider.readVersion(snapshot, dp.segments);
+        } catch {
+          throw notFound('no such version');
+        }
+        await loc.provider.write([...dir, n], stream, { replace });
+      },
+    );
     const path = joinDrivePath(dp.location, [...dir, final]);
     users.audit({ userId: req.identity.id, email: req.identity.email, action: 'restore.version', path, detail: { snapshot, from: dp.path } });
     return { ok: true, path };

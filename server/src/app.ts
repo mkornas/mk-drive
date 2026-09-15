@@ -3,7 +3,7 @@ import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { existsSync } from 'node:fs';
 import type { Config } from './config.ts';
-import { createAuth, registerAuth } from './auth.ts';
+import { createAuth, registerAuth, routePath } from './auth.ts';
 import { SsoProvider, registerSso, resolveSso } from './sso.ts';
 import { Locations } from './locations.ts';
 import { openDb } from './db.ts';
@@ -106,7 +106,7 @@ export async function createApp(cfg: Config, opts: { logger?: boolean } = {}): P
   // POST cannot carry it; belt and braces, refuse anything a browser marks cross-site
   // and anything that is not JSON (an HTML form cannot send JSON without CORS).
   app.addHook('onRequest', async (req, reply) => {
-    if (!req.url.startsWith('/api/') || !MUTATING.has(req.method)) return;
+    if (!MUTATING.has(req.method) || !(routePath(req) ?? '/api/').startsWith('/api/')) return;
     const site = req.headers['sec-fetch-site'];
     if (site === 'cross-site') return reply.code(403).send({ ok: false, message: 'cross-site request refused' });
     const type = (req.headers['content-type'] ?? '').split(';')[0].trim();
@@ -125,15 +125,14 @@ export async function createApp(cfg: Config, opts: { logger?: boolean } = {}): P
     // open; the account itself, other visitors' sessions and tokens, people, locations and
     // connectors are fixed until the nightly reset.
     app.addHook('onRequest', async (req, reply) => {
-      const path = req.url.split('?')[0];
-      if (MUTATING.has(req.method) && DEMO_LOCKED.some((r) => r.test(path))) {
-        return reply
-          .code(403)
-          .send({
-            ok: false,
-            message:
-              'Not on the demo drive: accounts, passwords, people, locations and connectors stay as they are. Files, folders and share links are all yours.',
-          });
+      // the route that matched, not the raw URL: `/api/%61ccount/password` is the same route
+      const path = routePath(req);
+      if (MUTATING.has(req.method) && (path === null || DEMO_LOCKED.some((r) => r.test(path)))) {
+        return reply.code(403).send({
+          ok: false,
+          message:
+            'Not on the demo drive: accounts, passwords, people, locations and connectors stay as they are. Files, folders and share links are all yours.',
+        });
       }
     });
   }
@@ -162,7 +161,8 @@ export async function createApp(cfg: Config, opts: { logger?: boolean } = {}): P
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('Referrer-Policy', 'same-origin');
     reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-    if (req.url.startsWith('/api/') && String(reply.getHeader('content-type') ?? '').includes('application/json')) reply.header('Cache-Control', 'no-store');
+    if ((routePath(req) ?? '').startsWith('/api/') && String(reply.getHeader('content-type') ?? '').includes('application/json'))
+      reply.header('Cache-Control', 'no-store');
   });
 
   app.setErrorHandler((err: Error & { statusCode?: number; validation?: unknown }, _req, reply) => {

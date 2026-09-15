@@ -128,7 +128,11 @@ export const config = {
   /** Where the password form is offered: everywhere, only from private addresses (the internet sees SSO alone), or never. */
   passwordLogin: envChoice('DRIVE_PASSWORD_LOGIN', ['on', 'lan', 'off'] as const, 'on'),
 
-  /** Proxies whose X-Forwarded-For is believed (for login throttling and audit only). */
+  /**
+   * Proxies whose X-Forwarded-For and CF-Connecting-IP are believed (for login throttling and audit only). A Cloudflare
+   * Tunnel is one: list where cloudflared connects from (loopback when it runs on the host, the Docker bridge gateway
+   * when the drive is a container reached through a published port), or every visitor through it shares one address.
+   */
   trustedProxies: envList('DRIVE_TRUSTED_PROXIES', '127.0.0.0/8,::1/128'),
 
   /** The ffmpeg binary for video thumbnails; missing = no video thumbnails, nothing else changes. */

@@ -9,7 +9,7 @@ import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { createOidc, type MkIdentity, type Oidc, registerOidcRoutes } from '@mk-kit/auth/server';
 import type { Config } from './config.ts';
-import { clientIp, isSecure, setSessionCookie } from './auth.ts';
+import { clientIp, isSecure, routePath, setSessionCookie } from './auth.ts';
 import type { Settings } from './settings.ts';
 import type { Users } from './users.ts';
 
@@ -174,7 +174,7 @@ const keyOf = (c: SsoConf) => JSON.stringify([c.issuer, c.clientId, c.clientSecr
 export function registerSso(app: FastifyInstance, cfg: Config, users: Users, sso: SsoProvider): void {
   // a login attempt while the provider is still unreachable retries the discovery, and explains itself when that fails too
   app.addHook('onRequest', async (req, reply) => {
-    const path = req.url.split('?')[0];
+    const path = routePath(req);
     if (path !== '/auth/login' && path !== '/auth/callback') return;
     const conf = sso.conf;
     if (!conf) return toLogin(reply, 'single sign-on is not set up on this drive');
@@ -194,6 +194,17 @@ export function registerSso(app: FastifyInstance, cfg: Config, users: Users, sso
     redirectUri: (req) => `${origin(req)}/auth/callback`,
     cookie: { secure: isSecure },
     onSignedIn: async (identity, { req, reply, next }) => {
+      // the email is the whole link to a local account: only one the provider has verified, and plain ASCII (no look-alikes)
+      const refusal = identity.emailVerified !== true ? 'not verified' : /[^\x00-\x7f]/.test(identity.email) ? 'non-ASCII' : null;
+      if (refusal) {
+        users.audit({ userId: null, email: identity.email || '?', action: 'login.failed', detail: `sso: email ${refusal}` });
+        return toLogin(
+          reply,
+          refusal === 'not verified'
+            ? `${sso.conf?.name ?? 'the provider'} has not verified the email ${identity.email || 'of that identity'} — verify it there first`
+            : `the email ${identity.email} has non-ASCII characters; sign in with an account whose email is plain ASCII`,
+        );
+      }
       const user = identity.email ? users.byEmail(identity.email) : null;
       if (!user || user.disabled) {
         users.audit({ userId: null, email: identity.email || '?', action: 'login.failed', detail: `sso: ${user ? 'disabled' : 'no account'}` });

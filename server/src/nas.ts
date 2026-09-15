@@ -107,3 +107,24 @@ export function smbUserName(email: string): string {
   const name = (local || 'user').slice(0, 32);
   return name === 'root' ? 'root-' : name;
 }
+
+/**
+ * The SMB user name of every drive account, unique: accounts are taken oldest first, each gets its email's name
+ * unless an older account holds it already, then `<name>-<id>` (cut to 32 characters, the suffix kept). A new
+ * account never changes the name of an older one, so alex@a and alex@b never share one SMB account and password.
+ */
+export function smbUserNames(accounts: { id: number; email: string }[]): Map<number, string> {
+  const names = new Map<number, string>();
+  const taken = new Set<string>();
+  for (const a of [...accounts].sort((x, y) => x.id - y.id)) {
+    const base = smbUserName(a.email);
+    let name = base;
+    for (let n = 0; taken.has(name); n++) {
+      const suffix = n === 0 ? `-${a.id}` : `-${a.id}-${n}`;
+      name = base.slice(0, 32 - suffix.length) + suffix;
+    }
+    taken.add(name);
+    names.set(a.id, name);
+  }
+  return names;
+}

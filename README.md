@@ -113,6 +113,11 @@ grants on every request; the UI only hides what you cannot open.
   internet path shows single sign-on alone while the password stays the
   fallback at home; `off` removes it everywhere. The server refuses
   `/api/login` accordingly; the page merely follows.
+- **Symlinks inside a location are not followed** — they are left out of
+  listings and cannot be opened, written through or deleted from the drive,
+  so a link can never reach a folder someone has no grant on, a hidden name,
+  or anything outside the location. Point a location at the real directory
+  instead of linking into it.
 - **Single sign-on** — point the drive at any OpenID Connect provider
   (Pocket ID, Authentik, Keycloak, …) on **Settings → Sign-in** (admins): a
   button name, the issuer, the client ID and secret, checked against the
@@ -229,7 +234,7 @@ the drive notices the snapshot directory on its own.
 | `DRIVE_OIDC_NAME` | `Single sign-on` | What the sign-in button says |
 | `DRIVE_COOKIE_SECRET` | random per start | Signs the ten-minute login cookie used during SSO |
 | `DRIVE_PASSWORD_LOGIN` | `on` | Where the password form is offered: `on`, `lan` (private addresses only), `off` |
-| `DRIVE_TRUSTED_PROXIES` | `127.0.0.0/8,::1/128` | Proxies whose `X-Forwarded-For` is believed (throttling, audit) |
+| `DRIVE_TRUSTED_PROXIES` | `127.0.0.0/8,::1/128` | Proxies whose `X-Forwarded-For` and `CF-Connecting-IP` are believed (throttling, audit). With a Cloudflare Tunnel, include where `cloudflared` connects from — loopback on the host, or the gateway of the drive's Docker network (`docker network inspect`) when `cloudflared` reaches a published port — else every visitor through the tunnel shares one address |
 | `DRIVE_HIDE` | `.zfs,.mk-drive,.trash` | Names never shown anywhere |
 | `DRIVE_TRASH_DAYS` | `30` | How long deleted items stay in the trash |
 | `DRIVE_DEMO` | `false` | Sample location + demo admin, recreated on every start (never for real data) |

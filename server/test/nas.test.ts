@@ -11,6 +11,7 @@ import { config, type Config } from '../src/config.ts';
 import { createApp } from '../src/app.ts';
 import type { Meta } from '../../shared/types.ts';
 import type { Request } from '../../shared/nas.ts';
+import { smbUserNames } from '../src/nas.ts';
 
 const PW = 'correct horse battery';
 let base: string;
@@ -500,6 +501,45 @@ test('the account page: every signed-in person may set their own SMB password; t
   );
   const plainAdmin = cookieOf(await plain.inject(json('POST', '/api/login', { email: 'alex@example.com', password: PW }, '')));
   assert.equal((await plain.inject({ url: '/api/account/smb', headers: { cookie: plainAdmin } })).statusCode, 404, 'not in NAS mode: the route does not exist');
+});
+
+test('SMB names: two accounts with the same local part get different names, the earlier account keeps the plain one', async () => {
+  await app.inject(json('POST', '/api/users', { email: 'anna@other.example', name: 'Anna Two', role: 'member', password: PW }, admin));
+  await app.inject(json('POST', '/api/users', { email: '1anna@crafted.example', name: 'Anna Three', role: 'member', password: PW }, admin));
+  const users = (await app.inject({ url: '/api/users', headers: { cookie: admin } })).json<{ id: number; email: string }[]>();
+  const idOf = (email: string) => users.find((u) => u.email === email)!.id;
+  const two = cookieOf(await app.inject(json('POST', '/api/login', { email: 'anna@other.example', password: PW }, '')));
+  const three = cookieOf(await app.inject(json('POST', '/api/login', { email: '1anna@crafted.example', password: PW }, '')));
+
+  assert.equal((await app.inject({ url: '/api/account/smb', headers: { cookie: member } })).json<{ name: string }>().name, 'anna');
+  assert.equal((await app.inject({ url: '/api/account/smb', headers: { cookie: two } })).json<{ name: string }>().name, `anna-${idOf('anna@other.example')}`);
+  assert.equal(
+    (await app.inject({ url: '/api/account/smb', headers: { cookie: three } })).json<{ name: string }>().name,
+    `anna-${idOf('1anna@crafted.example')}`,
+  );
+  seen.length = 0;
+  assert.equal((await app.inject(json('POST', '/api/account/smb-password', { password: 'correct horse battery' }, two))).statusCode, 200);
+  assert.deepEqual(seen.at(-1)?.args, { name: `anna-${idOf('anna@other.example')}`, password: 'correct horse battery' }, 'the first Anna keeps her password');
+});
+
+test('SMB names: a suffix is kept within 32 characters and never lands on a name already taken', () => {
+  const long = `${'a'.repeat(40)}@x.example`;
+  const names = smbUserNames([
+    { id: 12, email: 'alex@b.example' },
+    { id: 1, email: 'alex@a.example' },
+    { id: 7, email: long },
+    { id: 3, email: long.replace('@x', '@y') },
+    { id: 20, email: 'alex-12@c.example' },
+    { id: 30, email: 'root@x.example' },
+  ]);
+  assert.equal(names.get(1), 'alex');
+  assert.equal(names.get(12), 'alex-12');
+  assert.equal(names.get(3), 'a'.repeat(32));
+  assert.equal(names.get(7), `${'a'.repeat(30)}-7`);
+  assert.notEqual(names.get(20), 'alex-12');
+  assert.match(names.get(20)!, /^alex-12-20/);
+  assert.equal(names.get(30), 'root-');
+  for (const n of names.values()) assert.match(n, /^[a-z][a-z0-9._-]{0,31}$/);
 });
 
 test('replication: key, set, run, jobs by replication', async () => {

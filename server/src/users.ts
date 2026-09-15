@@ -1,5 +1,5 @@
 /** Users, passwords, sessions, grants and the audit log over the SQLite store. */
-import { randomBytes, scrypt as scryptCb, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, scrypt as scryptCb, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import type { DatabaseSync } from './db.ts';
 import type { AccessLevel, AuditEntry, Role, Session, User } from '../../shared/types.ts';
@@ -8,6 +8,14 @@ const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, keylen: number,
 const SCRYPT = { N: 1 << 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 
 export const PASSWORD_MIN = 10;
+
+/**
+ * What the client sees of a session: a hash of its secret id. The id is 256 random bits, so the hash tells nothing
+ * and needs no key or column; the cookie alone carries the secret.
+ */
+export function publicSessionId(id: string): string {
+  return createHash('sha256').update(`session:${id}`).digest('base64url').slice(0, 24);
+}
 
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16);
@@ -73,14 +81,29 @@ export class Users {
     this.db = db;
   }
 
+  /** Every account's id and email, oldest first. */
+  accounts(): { id: number; email: string }[] {
+    return this.db.prepare('SELECT id, email FROM users ORDER BY id').all() as { id: number; email: string }[];
+  }
+
   count(): number {
     return (this.db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n;
   }
 
   private toUser(row: UserRow): User {
     const grants: Record<string, AccessLevel> = {};
-    for (const g of this.db.prepare('SELECT location, level FROM grants WHERE user_id = ?').all(row.id) as { location: string; level: AccessLevel }[]) grants[g.location] = g.level;
-    return { id: row.id, email: row.email, name: row.name, role: row.role, disabled: !!row.disabled, createdAt: row.created_at, lastLoginAt: row.last_login_at, grants };
+    for (const g of this.db.prepare('SELECT location, level FROM grants WHERE user_id = ?').all(row.id) as { location: string; level: AccessLevel }[])
+      grants[g.location] = g.level;
+    return {
+      id: row.id,
+      email: row.email,
+      name: row.name,
+      role: row.role,
+      disabled: !!row.disabled,
+      createdAt: row.created_at,
+      lastLoginAt: row.last_login_at,
+      grants,
+    };
   }
 
   list(): User[] {
@@ -99,7 +122,9 @@ export class Users {
 
   async create(input: { email: string; name: string; role: Role; password: string; grants?: Record<string, AccessLevel> }): Promise<User> {
     const hash = await hashPassword(input.password);
-    const res = this.db.prepare('INSERT INTO users (email, name, role, password_hash, created_at) VALUES (?, ?, ?, ?, ?)').run(input.email.trim(), input.name.trim(), input.role, hash, Date.now());
+    const res = this.db
+      .prepare('INSERT INTO users (email, name, role, password_hash, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(input.email.trim(), input.name.trim(), input.role, hash, Date.now());
     const id = Number(res.lastInsertRowid);
     if (input.grants) this.setGrants(id, input.grants);
     return this.get(id)!;
@@ -152,13 +177,17 @@ export class Users {
   }
 
   createAppPassword(userId: number, name: string, tokenHash: string, prefix: string): AppPasswordRow {
-    const res = this.db.prepare('INSERT INTO app_passwords (user_id, name, token_hash, prefix, created_at) VALUES (?, ?, ?, ?, ?)').run(userId, name, tokenHash, prefix, Date.now());
+    const res = this.db
+      .prepare('INSERT INTO app_passwords (user_id, name, token_hash, prefix, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(userId, name, tokenHash, prefix, Date.now());
     return this.db.prepare('SELECT * FROM app_passwords WHERE id = ?').get(Number(res.lastInsertRowid)) as unknown as AppPasswordRow;
   }
 
   /** Remember the last use, at most once a minute per password (it runs on every request). */
   touchAppPassword(id: number, ip: string): void {
-    this.db.prepare('UPDATE app_passwords SET last_used_at = ?, last_ip = ? WHERE id = ? AND (last_used_at IS NULL OR last_used_at < ?)').run(Date.now(), ip, id, Date.now() - 60_000);
+    this.db
+      .prepare('UPDATE app_passwords SET last_used_at = ?, last_ip = ? WHERE id = ? AND (last_used_at IS NULL OR last_used_at < ?)')
+      .run(Date.now(), ip, id, Date.now() - 60_000);
   }
 
   deleteAppPassword(userId: number, id: number): boolean {
@@ -176,8 +205,20 @@ export class Users {
 
   createSession(userId: number, ttlMs: number, meta: { userAgent?: string; ip?: string; via?: SessionVia; idToken?: string } = {}): SessionRow {
     const now = Date.now();
-    const row: SessionRow = { id: randomBytes(32).toString('base64url'), user_id: userId, created_at: now, last_seen_at: now, expires_at: now + ttlMs, user_agent: (meta.userAgent ?? '').slice(0, 200), ip: meta.ip ?? '', via: meta.via ?? 'password', id_token: meta.idToken ?? null };
-    this.db.prepare('INSERT INTO sessions (id, user_id, created_at, last_seen_at, expires_at, user_agent, ip, via, id_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(row.id, row.user_id, row.created_at, row.last_seen_at, row.expires_at, row.user_agent, row.ip, row.via, row.id_token);
+    const row: SessionRow = {
+      id: randomBytes(32).toString('base64url'),
+      user_id: userId,
+      created_at: now,
+      last_seen_at: now,
+      expires_at: now + ttlMs,
+      user_agent: (meta.userAgent ?? '').slice(0, 200),
+      ip: meta.ip ?? '',
+      via: meta.via ?? 'password',
+      id_token: meta.idToken ?? null,
+    };
+    this.db
+      .prepare('INSERT INTO sessions (id, user_id, created_at, last_seen_at, expires_at, user_agent, ip, via, id_token) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(row.id, row.user_id, row.created_at, row.last_seen_at, row.expires_at, row.user_agent, row.ip, row.via, row.id_token);
     return row;
   }
 
@@ -207,14 +248,26 @@ export class Users {
     this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
   }
 
+  /** Deletes one of the user's sessions by its public id; false when there is none. */
+  deleteSessionOf(userId: number, publicId: string): boolean {
+    const rows = this.db.prepare('SELECT id FROM sessions WHERE user_id = ?').all(userId) as { id: string }[];
+    const row = rows.find((r) => publicSessionId(r.id) === publicId);
+    if (row) this.deleteSession(row.id);
+    return !!row;
+  }
+
   deleteOtherSessions(userId: number, keep: string | undefined): void {
     if (keep) this.db.prepare('DELETE FROM sessions WHERE user_id = ? AND id != ?').run(userId, keep);
     else this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId);
   }
 
   sessionsOf(userId: number, current?: string): Session[] {
-    return (this.db.prepare('SELECT * FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY last_seen_at DESC').all(userId, Date.now()) as unknown as SessionRow[]).map((s) => ({
-      id: s.id,
+    return (
+      this.db
+        .prepare('SELECT * FROM sessions WHERE user_id = ? AND expires_at > ? ORDER BY last_seen_at DESC')
+        .all(userId, Date.now()) as unknown as SessionRow[]
+    ).map((s) => ({
+      id: publicSessionId(s.id),
       createdAt: s.created_at,
       lastSeenAt: s.last_seen_at,
       expiresAt: s.expires_at,
@@ -233,14 +286,29 @@ export class Users {
   audit(entry: { userId: number | null; email: string; action: string; path?: string; detail?: unknown }): void {
     this.db
       .prepare('INSERT INTO audit (at, user_id, email, action, path, detail) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(Date.now(), entry.userId, entry.email, entry.action, entry.path ?? '', entry.detail === undefined ? '' : typeof entry.detail === 'string' ? entry.detail : JSON.stringify(entry.detail));
+      .run(
+        Date.now(),
+        entry.userId,
+        entry.email,
+        entry.action,
+        entry.path ?? '',
+        entry.detail === undefined ? '' : typeof entry.detail === 'string' ? entry.detail : JSON.stringify(entry.detail),
+      );
   }
 
   auditList(limit = 200, before?: number): AuditEntry[] {
     const rows = before
       ? this.db.prepare('SELECT * FROM audit WHERE id < ? ORDER BY id DESC LIMIT ?').all(before, limit)
       : this.db.prepare('SELECT * FROM audit ORDER BY id DESC LIMIT ?').all(limit);
-    return (rows as { id: number; at: number; user_id: number | null; email: string; action: string; path: string; detail: string }[]).map((r) => ({ id: r.id, at: r.at, userId: r.user_id, email: r.email, action: r.action, path: r.path, detail: r.detail }));
+    return (rows as { id: number; at: number; user_id: number | null; email: string; action: string; path: string; detail: string }[]).map((r) => ({
+      id: r.id,
+      at: r.at,
+      userId: r.user_id,
+      email: r.email,
+      action: r.action,
+      path: r.path,
+      detail: r.detail,
+    }));
   }
 }
 

@@ -7,7 +7,7 @@
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { badRequest, forbidden } from '../errors.ts';
-import { smbUserName } from '../nas.ts';
+import { smbUserNames } from '../nas.ts';
 import { PASSWORD_MIN } from '../users.ts';
 import type { Locations } from '../locations.ts';
 import type { NasClient } from '../nas.ts';
@@ -83,6 +83,7 @@ export function registerNasRoutes(app: FastifyInstance, nas: NasClient, location
     return { ...(await nas.call('power')), viaTunnel: typeof req.headers['cf-connecting-ip'] === 'string' };
   });
   // ---- the Cloudflare Tunnel: changing it through itself would cut the very connection in use, so that is refused ----
+  // the header counts from any peer (unlike clientIp): it only refuses or warns, so faking it holds back only the sender
   const viaTunnel = (req: FastifyRequest) => typeof req.headers['cf-connecting-ip'] === 'string';
   const notThroughTunnel = (req: FastifyRequest) => {
     if (viaTunnel(req)) throw forbidden('this page is open through the tunnel: changing it would cut this connection. Do it from home, on the local network');
@@ -291,9 +292,10 @@ export function registerNasRoutes(app: FastifyInstance, nas: NasClient, location
   });
 
   // ---- the signed-in person's own SMB access (any role; a browser session, not an app password) ----
+  const smbName = (req: FastifyRequest) => smbUserNames(users.accounts()).get(req.identity.id)!;
   app.get('/api/account/smb', async (req): Promise<{ name: string; hasPassword: boolean; host: string }> => {
     sessionOnly(req);
-    const name = smbUserName(req.identity.email);
+    const name = smbName(req);
     const [users, version] = await Promise.all([nas.call('users'), nas.call('version')]);
     return { name, hasPassword: users.some((u) => u.name === name && u.hasPassword), host: version.hostname };
   });
@@ -301,7 +303,7 @@ export function registerNasRoutes(app: FastifyInstance, nas: NasClient, location
     sessionOnly(req);
     const password = req.body?.password;
     if (typeof password !== 'string' || password.length < PASSWORD_MIN) throw badRequest(`the SMB password must be at least ${PASSWORD_MIN} characters`);
-    const name = smbUserName(req.identity.email);
+    const name = smbName(req);
     const u = await nas.call('user.smbPassword', { name, password });
     audit(req, 'nas.smb.password', { name });
     return { name: u.name, hasPassword: u.hasPassword };

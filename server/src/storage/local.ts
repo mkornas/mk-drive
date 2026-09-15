@@ -1,18 +1,23 @@
 /**
  * A directory on the local filesystem (which may well be an NFS/SMB mount —
- * the provider does not care). Every resolved path is checked with
- * `realpath` against the real root, so symlinks cannot lead outside.
+ * the provider does not care). Symlinks inside a location are never followed:
+ * a path resolves only when its `realpath` is exactly the path under the real
+ * root, links are left out of listings, and writes refuse a link in the final
+ * component (opened with O_NOFOLLOW). Grants and hidden names are checked on
+ * the typed path, so following a link could lead past both.
  * Temporary upload parts live in `<root>/.mk-drive/uploads` so the final
  * rename is atomic on the same filesystem.
  */
-import { createReadStream, createWriteStream } from 'node:fs';
-import { access, cp, mkdir, readdir, realpath, rename, rm, stat, statfs, utimes } from 'node:fs/promises';
+import { constants, createWriteStream } from 'node:fs';
+import { access, cp, lstat, mkdir, open, readdir, realpath, rename, rm, stat, statfs, utimes } from 'node:fs/promises';
 import { dirname, join, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import type { Readable } from 'node:stream';
 import { ExistsError, type ReadOptions, type StorageEntry, type StorageProvider, type StorageStat } from './provider.ts';
 
 const UPLOAD_DIR = ['.mk-drive', 'uploads'];
+const READ_FLAGS = constants.O_RDONLY | constants.O_NOFOLLOW;
+const WRITE_FLAGS = constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW;
 
 export class LocalProvider implements StorageProvider {
   private readonly root: string;
@@ -29,20 +34,20 @@ export class LocalProvider implements StorageProvider {
     return this.rootReal;
   }
 
-  /** Absolute path of `segments`, or null if it does not exist or resolves outside the root. */
+  /** Absolute path of `segments`, or null if it does not exist or goes through a symlink. */
   localPath(segments: readonly string[]): Promise<string | null> {
     return this.resolve(segments);
   }
 
   async resolve(segments: readonly string[]): Promise<string | null> {
     const root = await this.realRoot();
-    let real: string;
+    const abs = join(root, ...segments);
+    if (abs !== root && !abs.startsWith(root + sep)) return null;
     try {
-      real = await realpath(join(root, ...segments));
+      return (await realpath(abs)) === abs ? abs : null;
     } catch {
       return null;
     }
-    return real === root || real.startsWith(root + sep) ? real : null;
   }
 
   /** Absolute path for something that may not exist yet: the parent must resolve inside the root. */
@@ -53,9 +58,10 @@ export class LocalProvider implements StorageProvider {
     return join(parent, segments[segments.length - 1]);
   }
 
+  /** Whether the name is taken — by anything, a (dangling) symlink included. */
   private async exists(abs: string): Promise<boolean> {
     try {
-      await access(abs);
+      await lstat(abs);
       return true;
     } catch {
       return false;
@@ -75,25 +81,23 @@ export class LocalProvider implements StorageProvider {
   async list(segments: readonly string[], opts: { dirsOnly?: boolean } = {}): Promise<StorageEntry[]> {
     const abs = await this.resolve(segments);
     if (!abs) return [];
-    const root = await this.realRoot();
     const dirents = await readdir(abs, { withFileTypes: true });
     const out: StorageEntry[] = [];
-    const queue = dirents.filter((d) => !opts.dirsOnly || d.isDirectory() || d.isSymbolicLink());
+    // symlinks are not followed, so they are not listed either
+    const queue = dirents.filter((d) => !d.isSymbolicLink() && (!opts.dirsOnly || d.isDirectory()));
     let i = 0;
     const worker = async () => {
       while (i < queue.length) {
         const d = queue[i++];
         const p = join(abs, d.name);
         try {
-          if (d.isSymbolicLink()) {
-            const real = await realpath(p);
-            if (real !== root && !real.startsWith(root + sep)) continue;
-          }
           if (opts.dirsOnly && d.isDirectory()) {
             out.push({ name: d.name, kind: 'dir', size: 0, mtime: 0 });
             continue;
           }
-          const s = toStat(await stat(p));
+          const ls = await lstat(p); // a filesystem that does not report types in readdir
+          if (ls.isSymbolicLink()) continue;
+          const s = toStat(ls);
           if (opts.dirsOnly && s.kind !== 'dir') continue;
           out.push({ name: d.name, ...s });
         } catch {
@@ -108,7 +112,7 @@ export class LocalProvider implements StorageProvider {
   async read(segments: readonly string[], opts: ReadOptions = {}): Promise<Readable> {
     const abs = await this.resolve(segments);
     if (!abs) throw new Error('not found');
-    return createReadStream(abs, { start: opts.start, end: opts.end });
+    return (await open(abs, READ_FLAGS)).createReadStream({ start: opts.start, end: opts.end });
   }
 
   async space(): Promise<{ free: number; total: number } | null> {
@@ -131,9 +135,13 @@ export class LocalProvider implements StorageProvider {
 
   // ---- versions: ZFS exposes snapshots as read-only trees under <root>/.zfs/snapshot/<name> ----
 
-  private snapshotPath(snapshot: string, segments: readonly string[]): string {
+  /** The path inside the snapshot, only when no symlink is on the way (the same rule as the live tree). */
+  private async snapshotPath(snapshot: string, segments: readonly string[]): Promise<string> {
     if (!/^[A-Za-z0-9._:-]{1,200}$/.test(snapshot)) throw new Error('bad snapshot name');
-    return join(this.root, '.zfs', 'snapshot', snapshot, ...segments);
+    const snapRoot = await realpath(join(this.root, '.zfs', 'snapshot', snapshot));
+    const abs = join(snapRoot, ...segments);
+    if ((await realpath(abs)) !== abs) throw new Error('not found');
+    return abs;
   }
 
   async versions(segments: readonly string[]): Promise<{ snapshot: string; stat: StorageStat }[]> {
@@ -147,7 +155,7 @@ export class LocalProvider implements StorageProvider {
     await Promise.all(
       names.map(async (snapshot) => {
         try {
-          const s = await stat(this.snapshotPath(snapshot, segments));
+          const s = await stat(await this.snapshotPath(snapshot, segments));
           if (!s.isDirectory()) out.push({ snapshot, stat: toStat(s) });
         } catch {
           /* not in this snapshot */
@@ -158,9 +166,8 @@ export class LocalProvider implements StorageProvider {
   }
 
   async readVersion(snapshot: string, segments: readonly string[], opts: ReadOptions = {}): Promise<Readable> {
-    const p = this.snapshotPath(snapshot, segments);
-    await stat(p); // throws when missing
-    return createReadStream(p, { start: opts.start, end: opts.end });
+    const p = await this.snapshotPath(snapshot, segments); // throws when missing
+    return (await open(p, READ_FLAGS)).createReadStream({ start: opts.start, end: opts.end });
   }
 
   // ---- writes ----
@@ -204,8 +211,18 @@ export class LocalProvider implements StorageProvider {
 
   async write(segments: readonly string[], data: Readable, opts: { replace?: boolean; mtime?: number } = {}): Promise<void> {
     const dst = await this.resolveNew(segments);
-    if (!opts.replace && (await this.exists(dst))) throw new ExistsError(segments[segments.length - 1]);
-    await pipeline(data, createWriteStream(dst));
+    const name = segments[segments.length - 1];
+    const before = await lstat(dst).catch(() => null);
+    // a symlink in the name is refused, replace or not: writing would land wherever it points
+    if (before && (before.isSymbolicLink() || !opts.replace)) {
+      data.destroy();
+      throw new ExistsError(name);
+    }
+    const file = await open(dst, WRITE_FLAGS).catch((e) => {
+      data.destroy();
+      throw e;
+    });
+    await pipeline(data, file.createWriteStream());
     if (opts.mtime) await utimes(dst, new Date(), new Date(opts.mtime)).catch(() => {});
   }
 

@@ -17,6 +17,7 @@ import type { Users } from '../users.ts';
 import { type DrivePath, parseDrivePath } from '../paths.ts';
 import { etagOf } from '../entries.ts';
 import { mimeOf } from '../mime.ts';
+import { fileHeaders } from '../serve-headers.ts';
 import { badRequest, HttpError, notFound } from '../errors.ts';
 import { parseRange } from './files.ts';
 import type { ConflictPolicy } from '../../../shared/types.ts';
@@ -120,6 +121,12 @@ export function registerDavRoutes(app: FastifyInstance, access: Access, location
     return p;
   };
 
+  /** The name is not free although `stat` saw nothing there: a symlink, which is never written through. */
+  const linkInTheWay = (e: unknown): never => {
+    if (e instanceof ExistsError) throw new HttpError(409, 'that name is taken by a link');
+    throw e;
+  };
+
   const overwrite = (req: FastifyRequest): ConflictPolicy =>
     typeof req.headers.overwrite === 'string' && req.headers.overwrite.trim().toUpperCase() === 'F' ? 'fail' : 'replace';
 
@@ -180,11 +187,9 @@ export function registerDavRoutes(app: FastifyInstance, access: Access, location
           if (!st) throw notFound();
           if (st.kind === 'dir') return send207(reply, propstat(await nodeOf(loc, dp)));
           const etag = etagOf(st);
-          reply
-            .header('ETag', etag)
-            .header('Last-Modified', new Date(st.mtime).toUTCString())
-            .header('Accept-Ranges', 'bytes')
-            .header('Content-Type', mimeOf(dp.segments[dp.segments.length - 1]));
+          reply.header('ETag', etag).header('Last-Modified', new Date(st.mtime).toUTCString()).header('Accept-Ranges', 'bytes');
+          // WebDAV clients ignore both; a browser that opens this URL gets a download, never a page on the drive's origin
+          fileHeaders(reply, dp.segments[dp.segments.length - 1], { disposition: 'attachment', sandboxAll: true, bareType: true });
           if (req.headers['if-none-match'] === etag) return reply.code(304).send();
           const range = parseRange(req.headers.range, st.size);
           if (range === null) {
@@ -208,7 +213,7 @@ export function registerDavRoutes(app: FastifyInstance, access: Access, location
           const before = await loc.provider.stat(dp.segments);
           if (before?.kind === 'dir') throw new HttpError(405, 'is a folder');
           const body = req.body instanceof Readable ? req.body : Readable.from(req.body == null ? [] : [Buffer.from(String(req.body))]);
-          await loc.provider.write(dp.segments, body, { replace: true });
+          await loc.provider.write(dp.segments, body, { replace: true }).catch(linkInTheWay);
           const st = await loc.provider.stat(dp.segments);
           audit(req, 'upload', dp.path, { size: st?.size ?? 0, via: 'webdav' });
           if (st) reply.header('ETag', etagOf(st));
@@ -277,7 +282,7 @@ export function registerDavRoutes(app: FastifyInstance, access: Access, location
           let code = 200;
           if (!st) {
             // RFC 4918 §7.3: locking an unmapped URL creates an empty resource (Finder locks before it uploads)
-            await loc.provider.write(dp.segments, Readable.from([]), { replace: false });
+            await loc.provider.write(dp.segments, Readable.from([]), { replace: false }).catch(linkInTheWay);
             code = 201;
           }
           const timeout = typeof req.headers.timeout === 'string' && /^Second-\d+$/.test(req.headers.timeout) ? req.headers.timeout : 'Second-3600';

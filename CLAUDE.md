@@ -56,8 +56,10 @@ assume it is present.
   re-checked on every hit; password unlock sets a per-share cookie); `routes/versions.ts`
   reads `<root>/.zfs/snapshot/<name>/<path>` through the provider.
   Accounts, sessions, grants and audit live in SQLite via `node:sqlite`
-  (`db.ts`, `users.ts`); routes are split under `src/routes/`. Every path goes through `paths.ts` + `provider.resolve()` (realpath
-  inside the root); hidden names are refused, not just unlisted.
+  (`db.ts`, `users.ts`); routes are split under `src/routes/`. Every path goes through `paths.ts` + `provider.resolve()`: the
+  realpath must be exactly the typed path under the root, so symlinks inside a location are never followed (not listed,
+  not opened, not written through); hidden names are refused, not just unlisted. Every response carrying file bytes
+  gets its headers from `serve-headers.ts` (nosniff, and a sandbox + download for anything a browser could run).
 - `client/` — Angular 22, standalone, zoneless, signals, `@mk-kit/ui` 0.58.
   Drive paths in URLs: `/d/<location>/<path>`. Pages in `src/app/pages`,
   reusable bits in `src/app/shared`, services in `src/app/core`.

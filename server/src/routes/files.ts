@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Access, Resolved } from '../access.ts';
 import type { Locations } from '../locations.ts';
 import { isText, mimeOf } from '../mime.ts';
+import { fileHeaders } from '../serve-headers.ts';
 import { entryOf, etagOf } from '../entries.ts';
 import { badRequest, forbidden, HttpError, notFound } from '../errors.ts';
 import type { StorageStat } from '../storage/provider.ts';
@@ -29,14 +30,6 @@ export function parseRange(header: string | undefined, size: number): { start: n
   if (start > end || start >= size) return null;
   return { start, end };
 }
-
-function contentDisposition(kind: 'inline' | 'attachment', name: string): string {
-  const ascii = name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
-  return `${kind}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
-}
-
-/** Types a browser would execute as a document on our origin: served in a sandbox. */
-const SANDBOXED = new Set(['text/html', 'image/svg+xml', 'application/xml', 'application/xhtml+xml']);
 
 /** Browsing routes: locations, listings, file streaming. Every path is checked against the caller's grant. */
 export function registerFileRoutes(app: FastifyInstance, access: Access, locations: Locations, users: Users): void {
@@ -97,7 +90,12 @@ export function registerFileRoutes(app: FastifyInstance, access: Access, locatio
     const expected = req.headers['if-match'];
     if (typeof expected !== 'string') throw new HttpError(428, 'If-Match with the ETag you opened is required');
     if (expected !== etagOf(st)) throw new HttpError(412, 'the file changed since you opened it — reload and edit again');
-    const body = req.body instanceof Readable ? req.body : Readable.from([typeof req.body === 'string' ? Buffer.from(req.body) : Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body ?? ''))]);
+    const body =
+      req.body instanceof Readable
+        ? req.body
+        : Readable.from([
+            typeof req.body === 'string' ? Buffer.from(req.body) : Buffer.isBuffer(req.body) ? req.body : Buffer.from(JSON.stringify(req.body ?? '')),
+          ]);
     await loc.provider.write(dp.segments, body, { replace: true });
     const after = await loc.provider.stat(dp.segments);
     if (!after) throw notFound();
@@ -112,7 +110,6 @@ export function registerFileRoutes(app: FastifyInstance, access: Access, locatio
     if (!st) throw notFound();
     if (st.kind === 'dir') throw badRequest('is a directory');
     const name = dp.segments[dp.segments.length - 1] ?? dp.location;
-    const mime = mimeOf(name);
     const etag = etagOf(st);
     const download = req.query.download === '1' || req.query.download === 'true';
 
@@ -120,10 +117,7 @@ export function registerFileRoutes(app: FastifyInstance, access: Access, locatio
     reply.header('Last-Modified', new Date(st.mtime).toUTCString());
     reply.header('Accept-Ranges', 'bytes');
     reply.header('Cache-Control', 'private, no-cache');
-    reply.header('X-Content-Type-Options', 'nosniff');
-    reply.header('Content-Type', isText(mime) ? `${mime}; charset=utf-8` : mime);
-    reply.header('Content-Disposition', contentDisposition(download ? 'attachment' : 'inline', name));
-    if (SANDBOXED.has(mime)) reply.header('Content-Security-Policy', 'sandbox');
+    fileHeaders(reply, name, { disposition: download ? 'attachment' : 'inline', preview: true });
 
     if (req.headers['if-none-match'] === etag) return reply.code(304).send();
 

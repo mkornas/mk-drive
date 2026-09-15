@@ -114,10 +114,20 @@ test('admin sees every location; listing rules; file streaming', async () => {
   await mkdir(join(base, 'docs', 'tree', 'leaf', '.git'), { recursive: true });
   await writeFile(join(base, 'docs', 'tree', 'leaf', 'note.txt'), 'x');
   const tree = (await app.inject({ url: '/api/ls?path=Docs/tree&dirs=1', headers: { cookie: admin } })).json() as Listing;
-  assert.deepEqual(tree.entries.map((e) => [e.name, e.hasDirs]), [['branch', true], ['leaf', false]]);
+  assert.deepEqual(
+    tree.entries.map((e) => [e.name, e.hasDirs]),
+    [
+      ['branch', true],
+      ['leaf', false],
+    ],
+  );
   const withHiddenDirs = (await app.inject({ url: '/api/ls?path=Docs/tree&dirs=1&hidden=1', headers: { cookie: admin } })).json() as Listing;
   assert.equal(withHiddenDirs.entries.find((e) => e.name === 'leaf')?.hasDirs, true, 'with hidden shown, .git counts');
-  assert.equal((await app.inject({ url: '/api/ls?path=Docs/tree', headers: { cookie: admin } })).json<Listing>().entries[0].hasDirs, undefined, 'plain listings do not pay for it');
+  assert.equal(
+    (await app.inject({ url: '/api/ls?path=Docs/tree', headers: { cookie: admin } })).json<Listing>().entries[0].hasDirs,
+    undefined,
+    'plain listings do not pay for it',
+  );
   assert.equal((await app.inject({ url: '/api/file?path=Docs/.ssh/id_ed25519', headers: { cookie: admin } })).statusCode, 404);
   assert.equal((await app.inject({ url: '/api/ls?path=Docs/../etc', headers: { cookie: admin } })).statusCode, 400);
 
@@ -189,6 +199,62 @@ test('login throttle, wrong password, sessions, logout', async () => {
   assert.match(String(out.headers['set-cookie']), /Max-Age=0/);
   assert.equal((await app.inject({ url: '/api/me', headers: { cookie: second } })).statusCode, 401);
   admin = cookieOf(await app.inject(json('POST', '/api/login', { email: 'alex@example.com', password: PW })));
+});
+
+test('session ids never reach the client; a device is signed out by its public id', async () => {
+  const raw = (c: string) => decodeURIComponent(c.split('=')[1]);
+  const res = await app.inject(json('POST', '/api/login', { email: 'alex@example.com', password: PW }));
+  assert.equal(res.statusCode, 200);
+  const other = cookieOf(res);
+  assert.ok(!res.body.includes(raw(other)), 'not in the login body');
+  const me = await app.inject({ url: '/api/me', headers: { cookie: admin } });
+  assert.ok(!('sessionId' in me.json()) && !me.body.includes(raw(admin)), 'not in /api/me');
+  assert.ok(!(await app.inject({ url: '/api/meta', headers: { cookie: admin } })).body.includes(raw(admin)), 'not in /api/meta');
+
+  const list = (await app.inject({ url: '/api/sessions', headers: { cookie: admin } })).json() as { id: string; current: boolean }[];
+  assert.equal(list.length, 2);
+  assert.ok(
+    list.every((s) => s.id !== raw(admin) && s.id !== raw(other)),
+    'the list carries public ids only',
+  );
+  assert.equal((await app.inject({ url: '/api/users', headers: { cookie: `mkdrive_session=${list[0].id}` } })).statusCode, 401, 'a public id is not a session');
+  assert.equal((await app.inject({ method: 'DELETE', url: `/api/sessions/${encodeURIComponent(raw(other))}`, headers: { cookie: admin } })).statusCode, 400);
+  const target = list.find((s) => !s.current)!;
+  assert.equal((await app.inject({ method: 'DELETE', url: `/api/sessions/${target.id}`, headers: { cookie: admin } })).statusCode, 200);
+  assert.equal((await app.inject({ url: '/api/me', headers: { cookie: other } })).statusCode, 401, 'that device is signed out');
+  assert.equal((await app.inject({ url: '/api/me', headers: { cookie: admin } })).statusCode, 200, 'this one is not');
+});
+
+test('logout without a session is fine', async () => {
+  const res = await app.inject(json('POST', '/api/logout', {}));
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), { ok: true });
+});
+
+test('an encoded path meets the same sign-in and cross-site checks as the plain one', async () => {
+  for (const url of ['/%61pi/users', '/api/%75sers', '/%61pi/locations']) assert.equal((await app.inject({ url })).statusCode, 401, url);
+  const spare = cookieOf(await app.inject(json('POST', '/api/login', { email: 'alex@example.com', password: PW })));
+  const cross = await app.inject({
+    ...json('POST', '/%61pi/sessions/revoke-others', {}, spare),
+    headers: { 'content-type': 'application/json', cookie: spare, 'sec-fetch-site': 'cross-site' },
+  });
+  assert.equal(cross.statusCode, 403);
+  assert.equal((await app.inject({ url: '/api/me', headers: { cookie: admin } })).statusCode, 200, 'nothing was revoked');
+});
+
+test('two setups at once make one admin', async () => {
+  const fresh = await createApp(cfgWith({}), { logger: false });
+  try {
+    const both = await Promise.all(
+      ['owner@example.com', 'mallory@example.com'].map((email) => fresh.inject(json('POST', '/api/setup', { email, name: 'X', password: PW }))),
+    );
+    assert.deepEqual(both.map((r) => r.statusCode).sort(), [200, 403]);
+    assert.equal((await fresh.inject(json('POST', '/api/setup', { email: 'late@example.com', name: 'X', password: PW }))).statusCode, 403);
+    const owner = cookieOf(both.find((r) => r.statusCode === 200)!);
+    assert.equal(((await fresh.inject({ url: '/api/users', headers: { cookie: owner } })).json() as User[]).length, 1);
+  } finally {
+    await fresh.close();
+  }
 });
 
 test('guards: last admin, self lock-out, cross-site, non-JSON', async () => {

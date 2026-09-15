@@ -20,21 +20,23 @@ before(async () => {
 });
 after(() => rm(base, { recursive: true, force: true }));
 
-test('list: files and dirs, symlink out of root omitted, symlink inside kept', async () => {
+test('list: files and dirs; symlinks are not followed, so not listed, wherever they point', async () => {
   const p = new LocalProvider(root);
   const names = (await p.list([])).map((e) => `${e.kind}:${e.name}`).sort();
-  assert.deepEqual(names, ['dir:inside', 'dir:sub', 'file:hello.txt']);
+  assert.deepEqual(names, ['dir:sub', 'file:hello.txt']);
 });
 
 test('list dirsOnly skips files without stat', async () => {
   const p = new LocalProvider(root);
   const names = (await p.list([], { dirsOnly: true })).map((e) => e.name).sort();
-  assert.deepEqual(names, ['inside', 'sub']);
+  assert.deepEqual(names, ['sub']);
 });
 
 test('stat + resolve refuse to leave the root', async () => {
   const p = new LocalProvider(root);
   assert.equal(await p.stat(['escape']), null);
+  assert.equal(await p.stat(['inside']), null);
+  assert.equal(await p.stat(['inside', 'a.json']), null);
   assert.equal(await p.resolve(['..', 'outside.txt']), null);
   assert.equal(await p.stat(['nope']), null);
   const s = await p.stat(['hello.txt']);

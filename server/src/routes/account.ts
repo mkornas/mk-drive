@@ -84,17 +84,20 @@ export function registerAccountRoutes(
     return { name: name || null };
   });
 
+  /** A setup in flight: creating the account awaits the password hash, so a second request must not pass the check meanwhile. */
+  let settingUp = false;
   app.post<{ Body: { email?: unknown; name?: unknown; password?: unknown } }>('/api/setup', async (req, reply): Promise<Identity> => {
-    if (users.count() > 0) throw forbidden('setup is already done');
+    if (users.count() > 0 || settingUp) throw forbidden('setup is already done');
     const email = checkEmail(req.body?.email);
     const name = checkName(req.body?.name);
     const password = checkPassword(req.body?.password);
-    const user = await users.create({ email, name, role: 'admin', password });
+    settingUp = true;
+    const user = await users.create({ email, name, role: 'admin', password }).finally(() => (settingUp = false));
     users.markLogin(user.id);
     users.audit({ userId: user.id, email: user.email, action: 'setup', detail: 'first admin created' });
     const session = users.createSession(user.id, ttlMs, { userAgent: req.headers['user-agent'], ip: clientIp(req, cfg.trustedProxies) });
     setSessionCookie(req, reply, session.id, cfg.sessionDays * 86_400);
-    return { id: user.id, email: user.email, name: user.name, role: user.role, via: 'session', sessionId: session.id };
+    return { id: user.id, email: user.email, name: user.name, role: user.role, via: 'session' };
   });
 
   app.post<{ Body: { email?: unknown; password?: unknown } }>('/api/login', async (req, reply): Promise<Identity> => {
@@ -102,29 +105,31 @@ export function registerAccountRoutes(
     const ip = clientIp(req, cfg.trustedProxies);
     const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
-    const wait = Math.max(auth.throttle.retryAfter(ip), email ? auth.throttle.retryAfter(`email:${email}`) : 0);
+    // the address and the account are claimed while the password is checked: a concurrent attempt on either waits
+    const keys = email ? [ip, `email:${email}`] : [ip];
+    const wait = auth.throttle.begin(keys);
     if (wait > 0) {
       reply.header('Retry-After', String(Math.ceil(wait / 1000)));
       throw new HttpError(429, `too many attempts, wait ${Math.ceil(wait / 1000)} s`);
     }
-    const user = email && password ? await users.authenticate(email, password) : null;
+    const user = await (email && password ? users.authenticate(email, password) : Promise.resolve(null)).finally(() => auth.throttle.end(keys));
+    for (const k of keys) {
+      if (user) auth.throttle.succeeded(k);
+      else auth.throttle.failed(k);
+    }
     if (!user) {
-      auth.throttle.failed(ip);
-      if (email) auth.throttle.failed(`email:${email}`);
       users.audit({ userId: null, email: email || '?', action: 'login.failed', detail: ip });
       throw new HttpError(401, 'wrong email or password');
     }
-    auth.throttle.succeeded(ip);
-    auth.throttle.succeeded(`email:${email}`);
     const session = users.createSession(user.id, ttlMs, { userAgent: req.headers['user-agent'], ip });
     setSessionCookie(req, reply, session.id, cfg.sessionDays * 86_400);
     users.audit({ userId: user.id, email: user.email, action: 'login', detail: ip });
-    return { id: user.id, email: user.email, name: user.name, role: user.role, via: 'session', sessionId: session.id };
+    return { id: user.id, email: user.email, name: user.name, role: user.role, via: 'session' };
   });
 
   app.post('/api/logout', async (req, reply): Promise<SignOutResult> => {
     sessionOnly(req);
-    const sid = req.identity?.sessionId;
+    const sid = req.sessionId;
     const began = sid ? users.sessionOrigin(sid) : null;
     if (sid) users.deleteSession(sid);
     clearSessionCookie(req, reply);
@@ -135,21 +140,20 @@ export function registerAccountRoutes(
 
   app.get('/api/sessions', async (req): Promise<Session[]> => {
     sessionOnly(req);
-    return users.sessionsOf(req.identity.id, req.identity.sessionId);
+    return users.sessionsOf(req.identity.id, req.sessionId);
   });
 
+  /** `:id` is the public id from /api/sessions. */
   app.delete<{ Params: { id: string } }>('/api/sessions/:id', async (req) => {
     sessionOnly(req);
-    const mine = users.sessionsOf(req.identity.id).find((s) => s.id === req.params.id);
-    if (!mine) throw badRequest('not your session');
-    users.deleteSession(req.params.id);
+    if (!users.deleteSessionOf(req.identity.id, req.params.id)) throw badRequest('not your session');
     users.audit({ userId: req.identity.id, email: req.identity.email, action: 'session.revoke' });
     return { ok: true };
   });
 
   app.post('/api/sessions/revoke-others', async (req) => {
     sessionOnly(req);
-    users.deleteOtherSessions(req.identity.id, req.identity.sessionId);
+    users.deleteOtherSessions(req.identity.id, req.sessionId);
     users.audit({ userId: req.identity.id, email: req.identity.email, action: 'session.revoke-others' });
     return { ok: true };
   });
@@ -169,7 +173,7 @@ export function registerAccountRoutes(
     const current = typeof req.body?.current === 'string' ? req.body.current : '';
     if (!(await users.authenticate(user.email, current))) throw new HttpError(401, 'current password is wrong');
     await users.setPassword(user.id, next);
-    users.deleteOtherSessions(user.id, req.identity.sessionId);
+    users.deleteOtherSessions(user.id, req.sessionId);
     users.audit({ userId: user.id, email: user.email, action: 'password.change' });
     return { ok: true };
   });

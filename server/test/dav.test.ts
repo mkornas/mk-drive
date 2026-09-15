@@ -190,12 +190,14 @@ test('LOCK hands out a token (and creates the file Finder is about to upload); U
   assert.match(pp.body, /403 Forbidden/);
 });
 
-test('a session cookie works too, and a member sees only their locations', async () => {
+test('the session cookie does not open WebDAV; a member sees only their locations', async () => {
   const viaCookie = await app.inject({ method: 'PROPFIND' as never, url: '/dav/', headers: { cookie: admin, depth: '1' } });
-  assert.equal(viaCookie.statusCode, 207);
+  assert.equal(viaCookie.statusCode, 401);
   await app.inject(json('POST', '/api/users', { email: 'anna@example.com', name: 'Anna', password: PW, grants: { Media: 'read' } }, admin));
   const anna = String((await app.inject(json('POST', '/api/login', { email: 'anna@example.com', password: PW }, ''))).headers['set-cookie']).split(';')[0];
-  const root = await app.inject({ method: 'PROPFIND' as never, url: '/dav/', headers: { cookie: anna, depth: '1' } });
+  const t = (await app.inject(json('POST', '/api/app-passwords', { name: 'phone' }, anna))).json() as AppPasswordCreated;
+  const annaBasic = { authorization: `Basic ${Buffer.from(`anna@example.com:${t.secret}`).toString('base64')}` };
+  const root = await app.inject({ method: 'PROPFIND' as never, url: '/dav/', headers: { ...annaBasic, depth: '1' } });
   assert.deepEqual(hrefs(root.body), ['/dav/', '/dav/Media/']);
-  assert.equal((await app.inject({ method: 'PROPFIND' as never, url: '/dav/Docs/', headers: { cookie: anna } })).statusCode, 404);
+  assert.equal((await app.inject({ method: 'PROPFIND' as never, url: '/dav/Docs/', headers: annaBasic })).statusCode, 404);
 });

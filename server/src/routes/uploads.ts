@@ -5,7 +5,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import type { Readable } from 'node:stream';
+import { Readable } from 'node:stream';
 import type { Access } from '../access.ts';
 import type { Locations, Mounted } from '../locations.ts';
 import type { DatabaseSync } from '../db.ts';
@@ -42,7 +42,9 @@ export class Uploads {
   }
   create(row: Omit<UploadRow, 'created_at' | 'updated_at' | 'share_id'> & { share_id?: string }): void {
     const now = Date.now();
-    this.db.prepare('INSERT INTO uploads (id, user_id, location, dest, size, mtime, share_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(row.id, row.user_id, row.location, row.dest, row.size, row.mtime, row.share_id ?? null, now, now);
+    this.db
+      .prepare('INSERT INTO uploads (id, user_id, location, dest, size, mtime, share_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(row.id, row.user_id, row.location, row.dest, row.size, row.mtime, row.share_id ?? null, now, now);
   }
   touch(id: string): void {
     this.db.prepare('UPDATE uploads SET updated_at = ? WHERE id = ?').run(Date.now(), id);
@@ -82,9 +84,22 @@ export function registerUploadRoutes(app: FastifyInstance, access: Access, locat
     const id = randomBytes(18).toString('base64url');
     await loc.provider.uploadBegin(id);
     const mtime = Number(req.body?.mtime);
-    uploads.create({ id, user_id: req.identity.id, location: loc.cfg.name, dest: joinDrivePath(dp.location, [...dp.segments, name]), size, mtime: Number.isFinite(mtime) && mtime > 0 ? mtime : null });
+    uploads.create({
+      id,
+      user_id: req.identity.id,
+      location: loc.cfg.name,
+      dest: joinDrivePath(dp.location, [...dp.segments, name]),
+      size,
+      mtime: Number.isFinite(mtime) && mtime > 0 ? mtime : null,
+    });
     reply.code(201);
-    return { id, path: joinDrivePath(dp.location, [...dp.segments, name]), size, received: 0, exists: (await loc.provider.stat([...dp.segments, name])) !== null };
+    return {
+      id,
+      path: joinDrivePath(dp.location, [...dp.segments, name]),
+      size,
+      received: 0,
+      exists: (await loc.provider.stat([...dp.segments, name])) !== null,
+    };
   });
 
   app.get<{ Params: { id: string } }>('/api/uploads/:id', async (req): Promise<UploadStatus> => status(req, own(req, req.params.id)));
@@ -104,7 +119,12 @@ export function registerUploadRoutes(app: FastifyInstance, access: Access, locat
     if (received !== row.size) throw badRequest(`upload incomplete: ${received} of ${row.size} bytes`);
     const dir = dp.segments.slice(0, -1);
     const name = dp.segments[dp.segments.length - 1];
-    const final = await withPolicy(name, parsePolicy(req.body?.onConflict), async (n) => (await loc.provider.stat([...dir, n])) !== null, (n, replace) => loc.provider.uploadCommit(row.id, [...dir, n], { replace, mtime: row.mtime ?? undefined }));
+    const final = await withPolicy(
+      name,
+      parsePolicy(req.body?.onConflict),
+      async (n) => (await loc.provider.stat([...dir, n])) !== null,
+      (n, replace) => loc.provider.uploadCommit(row.id, [...dir, n], { replace, mtime: row.mtime ?? undefined }),
+    );
     uploads.remove(row.id);
     const path = joinDrivePath(dp.location, [...dir, final]);
     users.audit({ userId: req.identity.id, email: req.identity.email, action: 'upload', path, detail: { size: row.size } });
@@ -120,15 +140,21 @@ export function registerUploadRoutes(app: FastifyInstance, access: Access, locat
   });
 }
 
-/** One piece of an upload: `Upload-Offset` says where it goes; the provider refuses a gap or an overlap. Shared with the file-request routes. */
+/**
+ * One piece of an upload: `Upload-Offset` says where it goes; the provider refuses a gap or an overlap. Shared with the file-request routes.
+ * The piece must say its `Content-Length`; nothing past that many bytes is written, and a longer body fails (413).
+ */
 export async function appendPiece(req: FastifyRequest, loc: Mounted, row: UploadRow, uploads: Uploads): Promise<void> {
   const offset = Number(req.headers['upload-offset']);
   if (!Number.isInteger(offset) || offset < 0) throw badRequest('Upload-Offset header is required');
-  const len = Number(req.headers['content-length']);
-  if (Number.isFinite(len) && len > CHUNK_MAX) throw new HttpError(413, `a piece may be at most ${CHUNK_MAX} bytes`);
-  if (offset + (Number.isFinite(len) ? len : 0) > row.size) throw badRequest('more bytes than announced');
+  const raw = req.headers['content-length'];
+  if (raw === undefined) throw new HttpError(411, 'a piece needs a Content-Length');
+  const len = Number(raw);
+  if (!Number.isInteger(len) || len < 0) throw badRequest('bad Content-Length');
+  if (len > CHUNK_MAX) throw new HttpError(413, `a piece may be at most ${CHUNK_MAX} bytes`);
+  if (offset + len > row.size) throw badRequest('more bytes than announced');
   try {
-    await loc.provider.uploadAppend(row.id, offset, req.body as Readable);
+    await loc.provider.uploadAppend(row.id, offset, Readable.from(atMost(req.body as Readable, len)));
   } catch (e) {
     if (e instanceof OffsetError) {
       throw new HttpError(409, `offset mismatch: ${e.received} bytes received`);
@@ -136,6 +162,20 @@ export async function appendPiece(req: FastifyRequest, loc: Mounted, row: Upload
     throw e;
   }
   uploads.touch(row.id);
+}
+
+/**
+ * Passes bytes on up to `max`; anything past it is counted and dropped, and the stream then fails (413).
+ * The rest is read out rather than the request torn down, so the caller still gets the answer.
+ */
+export async function* atMost(source: AsyncIterable<Buffer>, max: number): AsyncGenerator<Buffer> {
+  let seen = 0;
+  for await (const chunk of source) {
+    if (seen + chunk.length <= max) yield chunk;
+    else if (seen < max) yield chunk.subarray(0, max - seen);
+    seen += chunk.length;
+  }
+  if (seen > max) throw new HttpError(413, `more than the ${max} bytes this piece announced`);
 }
 
 /** Drop parts nobody touched for a day (crashed browsers, closed laptops). */

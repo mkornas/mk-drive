@@ -144,6 +144,9 @@ export function openDb(file: string): DatabaseSync {
   addColumn(db, 'sessions', 'id_token', 'TEXT');
   // an upload that came through a file-request link belongs to the link, not to a signed-in caller
   addColumn(db, 'uploads', 'share_id', 'TEXT');
+  // what visitors already put through a file-request link, against its limits
+  addColumn(db, 'shares', 'uploaded_files', 'INTEGER NOT NULL DEFAULT 0');
+  addColumn(db, 'shares', 'uploaded_bytes', 'INTEGER NOT NULL DEFAULT 0');
   return db;
 }
 

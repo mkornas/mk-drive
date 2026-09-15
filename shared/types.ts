@@ -74,8 +74,6 @@ export interface Identity {
   role: Role;
   /** `access` = Cloudflare Access token mapped to this user; `session` = our own cookie (password or single sign-on); `token` = an app password (Basic or Bearer). */
   via: 'access' | 'session' | 'token';
-  /** The current session id when `via` is `session`. */
-  sessionId?: string;
   /** The app password in use when `via` is `token`. */
   tokenId?: number;
 }
@@ -137,6 +135,7 @@ export interface SignOutResult {
 }
 
 export interface Session {
+  /** A public id for signing this session out (`DELETE /api/sessions/:id`); never the cookie's secret. */
   id: string;
   createdAt: number;
   lastSeenAt: number;

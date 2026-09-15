@@ -11,7 +11,7 @@ import { createApp } from '../src/app.ts';
 import type { Meta } from '../../shared/types.ts';
 
 /** A tiny OpenID provider that signs anyone in as the email given in `who`. */
-async function provider(who: { email: string; name: string }) {
+async function provider(who: { email: string; name: string; verified?: boolean }) {
   const { privateKey, publicKey } = await generateKeyPair('RS256');
   const jwk = { ...(await exportJWK(publicKey)), kid: 'k1', alg: 'RS256', use: 'sig' };
   const codes = new Map<string, { challenge: string; nonce: string }>();
@@ -40,7 +40,7 @@ async function provider(who: { email: string; name: string }) {
     const c = codes.get(req.body.code);
     if (!c || createHash('sha256').update(req.body.code_verifier).digest('base64url') !== c.challenge) return reply.code(400).send({ error: 'invalid_grant' });
     codes.delete(req.body.code);
-    const id_token = await new SignJWT({ nonce: c.nonce, email: who.email, email_verified: true, name: who.name })
+    const id_token = await new SignJWT({ nonce: c.nonce, email: who.email, email_verified: who.verified ?? true, name: who.name })
       .setProtectedHeader({ alg: 'RS256', kid: 'k1' })
       .setIssuer(issuer)
       .setAudience('mk-drive')
@@ -59,7 +59,7 @@ async function provider(who: { email: string; name: string }) {
 let base: string;
 let idp: FastifyInstance;
 let app: FastifyInstance;
-const who = { email: 'Alex@Example.com', name: 'Alex' };
+const who: { email: string; name: string; verified?: boolean } = { email: 'Alex@Example.com', name: 'Alex' };
 
 before(async () => {
   base = await mkdtemp(join(tmpdir(), 'mk-drive-sso-'));
@@ -178,6 +178,55 @@ test('an identity without a local account is sent back to the login page with a 
   assert.equal(cb.statusCode, 303);
   assert.match(String(cb.headers.location), /^\/login\?reason=no%20account%20for%20stranger/);
   assert.ok(!String(cb.headers['set-cookie'] ?? '').includes('mkdrive_session='), 'no session for a stranger');
+});
+
+test('an unverified email, or one with non-ASCII characters, is refused even when an account matches', async () => {
+  const signIn = async () => {
+    const login = await app.inject({ url: '/auth/login', headers: { host: 'drive.test' } });
+    const transient = String(login.headers['set-cookie']).split(';')[0];
+    const back = new URL((await fetch(login.headers.location as string, { redirect: 'manual' })).headers.get('location')!);
+    return app.inject({ url: back.pathname + back.search, headers: { host: 'drive.test', cookie: transient } });
+  };
+  const admin = String(
+    (
+      await app.inject({
+        method: 'POST',
+        url: '/api/login',
+        headers: { 'content-type': 'application/json' },
+        payload: { email: 'alex@example.com', password: 'correct horse battery' },
+      })
+    ).headers['set-cookie'],
+  ).split(';')[0];
+  const zoe = await app.inject({
+    method: 'POST',
+    url: '/api/users',
+    headers: { 'content-type': 'application/json', cookie: admin },
+    payload: { email: 'zoë@example.com', name: 'Zoë', role: 'member', password: 'another long password' },
+  });
+  assert.equal(zoe.statusCode, 201, zoe.body);
+  try {
+    who.email = 'alex@example.com';
+    who.verified = false;
+    let cb = await signIn();
+    assert.equal(cb.statusCode, 303);
+    assert.match(decodeURIComponent(String(cb.headers.location)), /^\/login\?reason=.*not verified/);
+    assert.ok(!String(cb.headers['set-cookie'] ?? '').includes('mkdrive_session='), 'no session for an unverified email');
+
+    who.email = 'zoë@example.com';
+    who.verified = true;
+    cb = await signIn();
+    assert.match(decodeURIComponent(String(cb.headers.location)), /^\/login\?reason=.*non-ASCII/);
+    assert.ok(!String(cb.headers['set-cookie'] ?? '').includes('mkdrive_session='));
+    const audit = (await app.inject({ url: '/api/audit', headers: { cookie: admin } })).json() as { action: string; detail: string }[];
+    for (const why of [/not verified/, /non-ASCII/])
+      assert.ok(
+        audit.some((a) => a.action === 'login.failed' && why.test(a.detail)),
+        String(why),
+      );
+  } finally {
+    who.email = 'Alex@Example.com';
+    delete who.verified;
+  }
 });
 
 test('Settings → Sign-in: an admin sets the provider, checked first, secret never shown, live without a restart; off again; env and a password-less drive refuse', async () => {

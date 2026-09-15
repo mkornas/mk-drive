@@ -78,6 +78,16 @@ test('Basic and Bearer open the API as the user; wrong ones do not', async () =>
   assert.ok(list[0].lastUsedAt, 'use is remembered');
 });
 
+test('WebDAV takes an app password, never the browser session cookie', async () => {
+  assert.equal((await app.inject({ url: '/dav/Docs/a.txt', headers: basic('alex@example.com', made.secret) })).statusCode, 200);
+  for (const url of ['/dav/Docs/a.txt', '/d%61v/Docs/a.txt', '/dav']) {
+    const res = await app.inject({ url, headers: { cookie: admin } });
+    assert.equal(res.statusCode, 401, url);
+    assert.match(String(res.headers['www-authenticate']), /^Basic realm=/);
+  }
+  assert.equal((await app.inject({ url: '/api/me', headers: { cookie: admin } })).statusCode, 200, 'the cookie still opens the API');
+});
+
 test('an app password cannot manage the account or mint more', async () => {
   for (const [method, url, body] of [
     ['GET', '/api/app-passwords', undefined],
