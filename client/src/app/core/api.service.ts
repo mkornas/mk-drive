@@ -39,6 +39,7 @@ import type {
 } from '../../../../shared/nas';
 import type {
   AccessLevel,
+  PasswordLoginMode,
   SsoSettings,
   SsoSettingsInput,
   AppPassword,
@@ -160,6 +161,9 @@ export class ApiService {
   }
   removeSsoSettings(): Promise<SsoSettings> {
     return this.delete('/api/settings/sso');
+  }
+  setPasswordLogin(mode: PasswordLoginMode): Promise<SsoSettings> {
+    return firstValueFrom(this.http.put<SsoSettings>('/api/settings/password-login', { mode }));
   }
 
   // ---- NAS mode (admin; only when the mk-nas socket is mounted) ----

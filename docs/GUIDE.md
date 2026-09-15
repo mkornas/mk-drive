@@ -106,9 +106,12 @@ instead (`cifs` in fstab, then bind-mounted into `/locations`).
 
 Three doors, all optional beyond the first:
 
-- **Password** — always there. `DRIVE_PASSWORD_LOGIN` says where the form is
-  offered: `on` everywhere (default), `lan` only from private addresses (the
-  internet then sees single sign-on alone), `off` never.
+- **Password** — **Settings → Sign-in** says where the form is offered:
+  everywhere (default), the local network only (loopback and private
+  addresses, never through Cloudflare: the internet then sees single sign-on
+  alone), or nowhere (only once single sign-on is on). `DRIVE_PASSWORD_LOGIN=on|local|off`
+  in the environment sets it instead, and the page shows it read-only. App
+  passwords work from anywhere in every mode.
 - **Single sign-on** — any OpenID Connect provider (Pocket ID, Authelia,
   Keycloak, …). An admin sets it on **Settings → Sign-in**: register the
   client at the provider with the redirect URI and logout URL that page shows
@@ -118,7 +121,7 @@ Three doors, all optional beyond the first:
   never shows it again; it takes effect without a restart. Or set
   `DRIVE_OIDC_ISSUER`, `DRIVE_OIDC_CLIENT_ID`, `DRIVE_OIDC_CLIENT_SECRET` and
   `DRIVE_OIDC_NAME` in the environment: those win and the page shows them
-  read-only. With `DRIVE_PASSWORD_LOGIN=off` the page will not turn single
+  read-only. With password sign-in off the page will not turn single
   sign-on off. The provider says
   who you are; the drive still only lets in emails that have an account here.
   Nobody is created automatically.
@@ -135,7 +138,7 @@ An example setup: the container runs on a small Linux
 box, the storage is a NAS dataset mounted over NFS on the host and bind-mounted
 into the container, the public name goes through a Cloudflare Tunnel, sign-in
 is a passkey through an OIDC provider, and the password stays as the LAN-only
-fallback (`DRIVE_PASSWORD_LOGIN=lan`). Nothing in the app knows any of this;
+fallback (*Local network only* on Settings → Sign-in). Nothing in the app knows any of this;
 it only ever sees a directory.
 
 ## 4. Using it

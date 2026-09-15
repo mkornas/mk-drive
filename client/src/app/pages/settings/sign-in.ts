@@ -2,9 +2,9 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { MkButton } from '@mk-kit/ui/button';
 import { MkCard, MkTag } from '@mk-kit/ui/data';
 import { MkAlert, MkDialogService, MkToastService } from '@mk-kit/ui/feedback';
-import { MkFormField, MkInput, MkPasswordInput } from '@mk-kit/ui/forms';
+import { MkButtonToggle, MkButtonToggleGroup, MkFormField, MkInput, MkPasswordInput } from '@mk-kit/ui/forms';
 import { MkIcon } from '@mk-kit/ui/icon';
-import type { SsoSettings } from '../../../../../shared/types';
+import type { PasswordLoginMode, SsoSettings } from '../../../../../shared/types';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { DriveService } from '../../core/drive.service';
 import { SettingsShell } from './shell';
@@ -12,11 +12,12 @@ import { SettingsShell } from './shell';
 /**
  * Single sign-on for this drive: the admin brings their own OpenID Connect provider (Pocket ID, Authentik, Keycloak, …).
  * Nothing ships configured; the provider is checked before anything is saved, and the secret is never shown again.
+ * Below it, where password sign-in works: everywhere, only on the local network, or nowhere.
  */
 @Component({
   selector: 'app-sign-in-settings',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [SettingsShell, MkButton, MkCard, MkAlert, MkFormField, MkInput, MkPasswordInput, MkIcon, MkTag],
+  imports: [SettingsShell, MkButton, MkCard, MkAlert, MkFormField, MkInput, MkPasswordInput, MkIcon, MkTag, MkButtonToggleGroup, MkButtonToggle],
   template: `
     <app-settings heading="Sign-in" description="Let people sign in with your own identity provider, next to their password.">
       @if (s(); as s) {
@@ -94,7 +95,8 @@ import { SettingsShell } from './shell';
             </mk-form-field>
             @if (s.passwordLoginOff) {
               <mk-alert tone="warning" title="Password sign-in is off on this drive" class="alert">
-                Single sign-on is the only way in. A wrong client ID or secret locks everyone out until DRIVE_PASSWORD_LOGIN changes.
+                Single sign-on is the only way in. A wrong client ID or secret locks everyone out until password sign-in is turned back on (below, or
+                DRIVE_PASSWORD_LOGIN).
               </mk-alert>
             }
             @if (!locked()) {
@@ -108,6 +110,48 @@ import { SettingsShell } from './shell';
               </div>
             }
           </form>
+        </mk-card>
+
+        <mk-card class="block">
+          <h2>Password sign-in</h2>
+          <p class="muted">
+            Email and password on the sign-in page, and the iOS app's first sign-in. App passwords (Settings → Devices) work from anywhere, whatever is chosen
+            here.
+          </p>
+          @if (s.passwordLoginSource === 'env') {
+            <mk-alert tone="info" title="Set by the drive's environment" class="alert">
+              DRIVE_PASSWORD_LOGIN={{ s.passwordLogin }} configures it, so it is read-only here. Remove that line from the .env and restart the drive to choose
+              it on this page.
+            </mk-alert>
+          }
+          <mk-button-toggle-group
+            class="modes"
+            aria-label="Where password sign-in works"
+            [value]="mode()"
+            (valueChange)="setMode($any($event))"
+            [disabled]="modeLocked() || settingMode()"
+          >
+            <mk-button-toggle value="on">Everywhere</mk-button-toggle>
+            <mk-button-toggle value="local">Local network only</mk-button-toggle>
+            <mk-button-toggle value="off" [disabled]="!s.source && mode() !== 'off'">Off</mk-button-toggle>
+          </mk-button-toggle-group>
+          <p class="muted small">
+            @switch (mode()) {
+              @case ('on') {
+                Anyone who reaches the drive, at home or from the internet, gets the password form.
+              }
+              @case ('local') {
+                Only from this network (private and loopback addresses). From the internet, a Cloudflare Tunnel included, the sign-in page offers single sign-on
+                alone; the iOS app signs in there with an app password. Sessions already open keep working.
+              }
+              @case ('off') {
+                Nobody signs in with a password; single sign-on is the only way in.
+              }
+            }
+          </p>
+          @if (!s.source && mode() !== 'off' && s.passwordLoginSource !== 'env') {
+            <p class="muted small">Off needs single sign-on turned on first, or nobody could sign in.</p>
+          }
         </mk-card>
       } @else if (error()) {
         <mk-alert tone="danger" title="Could not load the sign-in settings">{{ error() }}</mk-alert>
@@ -172,6 +216,9 @@ import { SettingsShell } from './shell';
         max-width: 32rem;
         margin-top: var(--mk-space-3);
       }
+      .modes {
+        margin: var(--mk-space-3) 0 var(--mk-space-2);
+      }
       .actions {
         display: flex;
         gap: var(--mk-space-2);
@@ -193,6 +240,9 @@ export class SignInSettingsPage {
   protected readonly secret = signal('');
   protected readonly saving = signal(false);
   protected readonly removing = signal(false);
+  protected readonly mode = signal<PasswordLoginMode>('on');
+  protected readonly settingMode = signal(false);
+  protected readonly modeLocked = computed(() => this.s()?.passwordLoginSource === 'env' || !!this.drive.meta()?.demo);
   protected readonly locked = computed(() => this.s()?.source === 'env' || !!this.drive.meta()?.demo);
   protected readonly canSave = computed(() => !!this.issuer().trim() && !!this.clientId().trim() && (!!this.secret() || !!this.s()?.hasSecret));
 
@@ -202,6 +252,7 @@ export class SignInSettingsPage {
 
   private fill(s: SsoSettings): void {
     this.s.set(s);
+    this.mode.set(s.passwordLogin);
     this.name.set(s.source || s.name !== 'Single sign-on' ? s.name : '');
     this.issuer.set(s.issuer);
     this.clientId.set(s.clientId);
@@ -253,6 +304,25 @@ export class SignInSettingsPage {
       this.toast.danger(errorMessage(e));
     } finally {
       this.removing.set(false);
+    }
+  }
+
+  async setMode(mode: PasswordLoginMode): Promise<void> {
+    const before = this.mode();
+    if (mode === before) return;
+    this.mode.set(mode);
+    this.settingMode.set(true);
+    try {
+      this.fill(await this.api.setPasswordLogin(mode));
+      await this.drive.ready();
+      this.toast.success(
+        mode === 'on' ? 'Password sign-in works everywhere' : mode === 'local' ? 'Password sign-in works only on the local network' : 'Password sign-in is off',
+      );
+    } catch (e) {
+      this.mode.set(before);
+      this.toast.danger(errorMessage(e));
+    } finally {
+      this.settingMode.set(false);
     }
   }
 

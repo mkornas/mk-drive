@@ -27,8 +27,9 @@ services:
       DRIVE_OIDC_CLIENT_ID: ${DRIVE_OIDC_CLIENT_ID:-}
       DRIVE_OIDC_CLIENT_SECRET: ${DRIVE_OIDC_CLIENT_SECRET:-}
       DRIVE_OIDC_NAME: ${DRIVE_OIDC_NAME:-Single sign-on}
-      # Password form: on (everywhere), lan (private addresses only — the internet sees SSO alone), off.
-      DRIVE_PASSWORD_LOGIN: ${DRIVE_PASSWORD_LOGIN:-on}
+      # Password sign-in: on (everywhere), local (private addresses only — the internet sees SSO alone), off.
+      # Empty = an admin chooses it on Settings → Sign-in (on until then).
+      DRIVE_PASSWORD_LOGIN: ${DRIVE_PASSWORD_LOGIN:-}
       # Demo mode (never with real data): DRIVE_DEMO=true recreates a sample location and the demo
       # admin on every start; DRIVE_DEMO_SEED names a directory copied into it (real photos, videos, PDFs).
       # DRIVE_DEMO: "true"

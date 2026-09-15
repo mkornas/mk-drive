@@ -12,7 +12,8 @@ import { isIP } from 'node:net';
 import { createHash } from 'node:crypto';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Config } from './config.ts';
-import type { Identity } from '../../shared/types.ts';
+import type { Identity, PasswordLoginMode } from '../../shared/types.ts';
+import type { Settings } from './settings.ts';
 import type { Users } from './users.ts';
 
 declare module 'fastify' {
@@ -216,14 +217,36 @@ export function viaCloudflare(req: FastifyRequest): boolean {
   return viaCf(req.headers);
 }
 
-/** Private, loopback and link-local ranges — "the LAN" for `DRIVE_PASSWORD_LOGIN=lan`. */
-const PRIVATE = ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '127.0.0.0/8', '169.254.0.0/16', 'fc00::/7', 'fe80::/10', '::1/128'];
+/**
+ * Loopback, private and link-local ranges: "the local network" for password sign-in in `local` mode (IPv4-mapped IPv6
+ * matches too). Not 100.64.0.0/10: carrier-grade NAT and overlay networks hand those out to hosts anywhere.
+ */
+const LOCAL = ['127.0.0.0/8', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '169.254.0.0/16', '::1/128', 'fc00::/7', 'fe80::/10'];
 
-/** Whether the password form is offered to this request (`DRIVE_PASSWORD_LOGIN`). */
-export function passwordLoginAllowed(req: FastifyRequest, cfg: Pick<Config, 'passwordLogin' | 'trustedProxies'>): boolean {
-  if (cfg.passwordLogin === 'on') return true;
-  if (cfg.passwordLogin === 'off') return false;
-  return !viaCloudflare(req) && isTrusted(clientIp(req, cfg.trustedProxies), PRIVATE);
+/**
+ * Whether a request comes from the local network: its client address (see clientIp: Cloudflare's header or
+ * X-Forwarded-For only from a trusted proxy, else the socket's) is in LOCAL, and it did not come through Cloudflare.
+ * Cloudflare's headers count from any peer, whatever address they name: they only ever make a request not local, and
+ * a tunnel whose connector is missing from DRIVE_TRUSTED_PROXIES still arrives from a private (Docker) address.
+ */
+export function isLocalRequest(req: Pick<FastifyRequest, 'headers' | 'socket'>, trustedProxies: string[]): boolean {
+  return !viaCf(req.headers) && isTrusted(clientIp(req as FastifyRequest, trustedProxies), LOCAL);
+}
+
+/** Where an admin's choice of password sign-in is kept in the settings table. */
+export const PASSWORD_LOGIN_KEY = 'passwordLogin';
+
+/** The mode in force: DRIVE_PASSWORD_LOGIN when set, else what an admin chose on Settings → Sign-in, else `on`. */
+export function resolvePasswordLogin(cfg: Pick<Config, 'passwordLogin'>, settings: Settings | null): { mode: PasswordLoginMode; source: 'env' | 'settings' } {
+  if (cfg.passwordLogin) return { mode: cfg.passwordLogin, source: 'env' };
+  const saved = settings?.get(PASSWORD_LOGIN_KEY);
+  return { mode: saved === 'local' || saved === 'off' ? saved : 'on', source: 'settings' };
+}
+
+/** Whether this request may sign in with an account password (the form, `/api/login`). */
+export function passwordLoginAllowed(req: FastifyRequest, cfg: Pick<Config, 'passwordLogin' | 'trustedProxies'>, settings: Settings | null): boolean {
+  const { mode } = resolvePasswordLogin(cfg, settings);
+  return mode === 'on' || (mode === 'local' && isLocalRequest(req, cfg.trustedProxies));
 }
 
 /** Whether the client reached us over TLS (directly or through a proxy that says so). */

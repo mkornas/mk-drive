@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import type { LocationMode } from '../../shared/types.ts';
+import type { LocationMode, PasswordLoginMode } from '../../shared/types.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -26,9 +26,12 @@ function envBool(name: string, fallback = false): boolean {
   return v === '1' || v === 'true' || v === 'yes' || v === 'on';
 }
 
-function envChoice<T extends string>(name: string, allowed: readonly T[], fallback: T): T {
-  const v = env(name, fallback).toLowerCase() as T;
-  if (!allowed.includes(v)) throw new Error(`${name} must be one of ${allowed.join(', ')}`);
+/** `DRIVE_PASSWORD_LOGIN`: empty when unset (Settings → Sign-in decides); `lan`, the old name, reads as `local`. */
+function envPasswordLogin(): PasswordLoginMode | '' {
+  const v = env('DRIVE_PASSWORD_LOGIN', '').toLowerCase();
+  if (v === '') return '';
+  if (v === 'lan') return 'local';
+  if (v !== 'on' && v !== 'local' && v !== 'off') throw new Error('DRIVE_PASSWORD_LOGIN must be one of on, local, off (or unset)');
   return v;
 }
 
@@ -127,8 +130,11 @@ export const config = {
   oidcName: env('DRIVE_OIDC_NAME', 'Single sign-on'),
   /** Signs the ten-minute login cookie; random per start when unset (a restart mid-login just restarts the login). */
   cookieSecret: env('DRIVE_COOKIE_SECRET', ''),
-  /** Where the password form is offered: everywhere, only from private addresses (the internet sees SSO alone), or never. */
-  passwordLogin: envChoice('DRIVE_PASSWORD_LOGIN', ['on', 'lan', 'off'] as const, 'on'),
+  /**
+   * Where the password form is offered: everywhere, only from the local network (the internet sees SSO alone), or never.
+   * Unset or empty = an admin picks it on Settings → Sign-in (`on` until then).
+   */
+  passwordLogin: envPasswordLogin(),
 
   /**
    * Proxies whose X-Forwarded-For and CF-Connecting-IP are believed (for login throttling and audit only). A Cloudflare

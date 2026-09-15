@@ -355,6 +355,15 @@ test('Settings → Sign-in: an admin sets the provider, checked first, secret ne
     assert.equal((await plain.inject({ url: '/api/settings/sso', headers: { ...json, cookie: mc } })).statusCode, 403);
     assert.equal((await plain.inject({ method: 'DELETE', url: '/api/settings/sso', headers: { host: 'drive.test', cookie: mc } })).statusCode, 403);
 
+    // password sign-in turned off on the page: single sign-on is then the only way in and stays on
+    const pwOff = await plain.inject({ method: 'PUT', url: '/api/settings/password-login', headers: as, payload: { mode: 'off' } });
+    assert.equal(pwOff.statusCode, 200, pwOff.body);
+    assert.deepEqual([pwOff.json().passwordLogin, pwOff.json().passwordLoginSource, pwOff.json().passwordLoginOff], ['off', 'settings', true]);
+    const kept = await plain.inject({ method: 'DELETE', url: '/api/settings/sso', headers: { host: 'drive.test', cookie } });
+    assert.equal(kept.statusCode, 400);
+    assert.match(kept.json().message, /only way in/);
+    assert.equal((await plain.inject({ method: 'PUT', url: '/api/settings/password-login', headers: as, payload: { mode: 'on' } })).statusCode, 200);
+
     const off = await plain.inject({ method: 'DELETE', url: '/api/settings/sso', headers: { host: 'drive.test', cookie } });
     assert.equal(off.statusCode, 200, off.body);
     assert.deepEqual([off.json().source, off.json().hasSecret], [null, false]);

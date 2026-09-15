@@ -108,11 +108,18 @@ grants on every request; the UI only hides what you cannot open.
 - **A native iOS app** is planned: the drive inside the Files app, uploads,
   share links, and a read-only Storage tab in NAS mode. The milestones are in
   [`docs/ios-app-plan.md`](docs/ios-app-plan.md).
-- **Where the password form shows** — `DRIVE_PASSWORD_LOGIN=lan` offers it
-  only to private addresses (your LAN, `localhost`, Docker networks), so the
-  internet path shows single sign-on alone while the password stays the
-  fallback at home; `off` removes it everywhere. The server refuses
-  `/api/login` accordingly; the page merely follows.
+- **Where the password form shows** — **Settings → Sign-in** (admins) picks
+  *Everywhere*, *Local network only* or *Off*, or `DRIVE_PASSWORD_LOGIN=on|local|off`
+  sets it for good (the page then shows it read-only). *Local* offers the
+  password only to loopback and private addresses (your LAN, `localhost`,
+  Docker networks; not 100.64.0.0/10), and never to a request that came
+  through Cloudflare, so the internet path shows single sign-on alone while
+  the password stays the fallback at home. *Off* removes it everywhere and
+  needs single sign-on first. The server refuses `/api/login` accordingly
+  (403, audited); the page merely follows. App passwords work from anywhere
+  in every mode, so outside the LAN the iOS app signs in with one. Locked out
+  by a broken provider? `DRIVE_PASSWORD_LOGIN=on` in the environment wins
+  over the page.
 - **Symlinks inside a location are not followed** — they are left out of
   listings and cannot be opened, written through or deleted from the drive,
   so a link can never reach a folder someone has no grant on, a hidden name,
@@ -234,7 +241,7 @@ the drive notices the snapshot directory on its own.
 | `DRIVE_OIDC_ISSUER` / `DRIVE_OIDC_CLIENT_ID` / `DRIVE_OIDC_CLIENT_SECRET` | — | OpenID Connect single sign-on (all three enable it, and take over from Settings → Sign-in) |
 | `DRIVE_OIDC_NAME` | `Single sign-on` | What the sign-in button says |
 | `DRIVE_COOKIE_SECRET` | random per start | Signs the ten-minute login cookie used during SSO; at least 16 characters (32 random bytes), a shorter one stops the start |
-| `DRIVE_PASSWORD_LOGIN` | `on` | Where the password form is offered: `on`, `lan` (private addresses only), `off` |
+| `DRIVE_PASSWORD_LOGIN` | — | Where password sign-in works: `on` (everywhere), `local` (loopback and private addresses only, never through Cloudflare; `lan` is the old name), `off`. Unset or empty = chosen on Settings → Sign-in (`on` until then) |
 | `DRIVE_TRUSTED_PROXIES` | `127.0.0.0/8,::1/128` | Proxies whose `X-Forwarded-For` and `CF-Connecting-IP` are believed (throttling, audit). With a Cloudflare Tunnel, include where `cloudflared` connects from — loopback on the host, or the gateway of the drive's Docker network (`docker network inspect`) when `cloudflared` reaches a published port — else every visitor through the tunnel shares one address |
 | `DRIVE_HIDE` | `.zfs,.mk-drive,.trash` | Names never shown anywhere |
 | `DRIVE_TRASH_DAYS` | `30` | How long deleted items stay in the trash |

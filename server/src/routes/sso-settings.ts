@@ -3,10 +3,13 @@
  * provider. Nothing about any particular provider ships with the drive. The
  * values are checked against the provider's discovery document before they
  * are saved, the secret is written but never read back, and DRIVE_OIDC_* in
- * the environment, when set, stays in charge and shows read-only.
+ * the environment, when set, stays in charge and shows read-only. Where
+ * password sign-in works (everywhere, the local network only, nowhere) is
+ * chosen here too, unless DRIVE_PASSWORD_LOGIN sets it.
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import type { SsoSettings, SsoSettingsInput } from '../../../shared/types.ts';
+import type { PasswordLoginInput, SsoSettings, SsoSettingsInput } from '../../../shared/types.ts';
+import { PASSWORD_LOGIN_KEY, resolvePasswordLogin } from '../auth.ts';
 import type { Config } from '../config.ts';
 import { badRequest, forbidden, HttpError } from '../errors.ts';
 import type { Settings } from '../settings.ts';
@@ -49,6 +52,7 @@ export function registerSsoSettingsRoutes(app: FastifyInstance, cfg: Config, use
       clientId: saved(SSO_KEYS.clientId),
       clientSecret: saved(SSO_KEYS.clientSecret),
     };
+    const pw = resolvePasswordLogin(cfg, settings);
     return {
       source: r?.source ?? null,
       name: shown.name,
@@ -59,7 +63,9 @@ export function registerSsoSettingsRoutes(app: FastifyInstance, cfg: Config, use
       error: r ? sso.lastError : null,
       redirectUri: `${origin(req)}/auth/callback`,
       logoutRedirectUri: `${origin(req)}/login`,
-      passwordLoginOff: cfg.passwordLogin === 'off',
+      passwordLoginOff: pw.mode === 'off',
+      passwordLogin: pw.mode,
+      passwordLoginSource: pw.source,
     };
   };
 
@@ -112,11 +118,28 @@ export function registerSsoSettingsRoutes(app: FastifyInstance, cfg: Config, use
     admin(req);
     fromEnv();
     // with password sign-in off, single sign-on is the only way in: turning it off would lock everyone out
-    if (cfg.passwordLogin === 'off')
-      throw badRequest('password sign-in is off on this drive (DRIVE_PASSWORD_LOGIN=off), so single sign-on is the only way in; it stays on');
+    const pw = resolvePasswordLogin(cfg, settings);
+    if (pw.mode === 'off')
+      throw badRequest(
+        `password sign-in is off on this drive${pw.source === 'env' ? ' (DRIVE_PASSWORD_LOGIN=off)' : ''}, so single sign-on is the only way in; it stays on`,
+      );
     for (const k of Object.values(SSO_KEYS)) settings.set(k, null);
     sso.use({ name: '', issuer: '', clientId: '', clientSecret: '' }, null);
     users.audit({ userId: req.identity.id, email: req.identity.email, action: 'settings.sso', detail: { off: true } });
+    return view(req);
+  });
+
+  app.put<{ Body: PasswordLoginInput }>('/api/settings/password-login', async (req): Promise<SsoSettings> => {
+    admin(req);
+    if (resolvePasswordLogin(cfg, null).source === 'env')
+      throw new HttpError(409, 'password sign-in is set in the environment (DRIVE_PASSWORD_LOGIN); change it there, or remove that line to choose it here');
+    const mode = (req.body as { mode?: unknown } | undefined)?.mode;
+    if (mode !== 'on' && mode !== 'local' && mode !== 'off') throw badRequest('mode must be on, local or off');
+    // `local` always leaves a way in (from home); `off` only when single sign-on can take over
+    if (mode === 'off' && !resolveSso(cfg, settings))
+      throw badRequest('turn on single sign-on first: with password sign-in off and no single sign-on, nobody could sign in');
+    settings.set(PASSWORD_LOGIN_KEY, mode === 'on' ? null : mode);
+    users.audit({ userId: req.identity.id, email: req.identity.email, action: 'settings.password-login', detail: { mode } });
     return view(req);
   });
 }

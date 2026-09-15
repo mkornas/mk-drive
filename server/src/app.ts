@@ -52,7 +52,7 @@ const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 /** Mutations the demo drive refuses (see the hook below). */
 const DEMO_LOCKED = [
   /^\/api\/account(\/password)?$/,
-  /^\/api\/settings\/(name|sso)$/,
+  /^\/api\/settings\/(name|sso|password-login)$/,
   /^\/api\/users(\/|$)/,
   /^\/api\/connectors(\/|$)/,
   /^\/api\/sessions(\/|$)/,

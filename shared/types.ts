@@ -178,6 +178,17 @@ export interface SsoSettings {
   logoutRedirectUri: string;
   /** Password sign-in is off on this drive: a wrong client ID or secret would leave nobody a way in. */
   passwordLoginOff: boolean;
+  /** Where password sign-in works (`PUT /api/settings/password-login` changes it). */
+  passwordLogin: PasswordLoginMode;
+  /** 'env' when DRIVE_PASSWORD_LOGIN sets it (read-only here), else 'settings' (an admin's choice, `on` until one is made). */
+  passwordLoginSource: 'env' | 'settings';
+}
+
+/** Where password sign-in works: everywhere, only from the local network (loopback and private addresses, never through Cloudflare), or nowhere. */
+export type PasswordLoginMode = 'on' | 'local' | 'off';
+
+export interface PasswordLoginInput {
+  mode: PasswordLoginMode;
 }
 
 export interface SsoSettingsInput {
@@ -206,8 +217,10 @@ export interface Meta {
   demo?: boolean;
   /** Single sign-on is configured: show a "Sign in with <name>" button that goes to `/auth/login`. */
   sso?: { name: string };
-  /** The password form is offered to this visitor (`DRIVE_PASSWORD_LOGIN` may limit it to the LAN or turn it off). */
+  /** The password form is offered to this visitor (`DRIVE_PASSWORD_LOGIN` or Settings → Sign-in may limit it to the local network or turn it off). */
   passwordLogin: boolean;
+  /** Password sign-in is limited to the local network (`local`), whoever asks: with `passwordLogin` false the visitor is outside it, and the page can say it works at home. */
+  passwordLoginLocal?: boolean;
   /** NAS mode: the mk-nas agent's socket is configured, so admins get the Storage section (`/api/nas/*`) and everyone an SMB password on the account page. */
   nas?: boolean;
   /** NAS mode: the agent speaks an older verb contract than this drive was built for; the Storage pages may misbehave until mk-nas is upgraded. */

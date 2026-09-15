@@ -29,7 +29,9 @@ import { AuthCard } from '../shared/auth-card';
           <div class="or muted"><span>or with a password</span></div>
         }
       }
-      @if (!passwordLogin() && !drive.meta()?.sso) {
+      @if (!passwordLogin() && drive.meta()?.passwordLoginLocal) {
+        <p class="muted hint">Password sign-in is available on the local network.</p>
+      } @else if (!passwordLogin() && !drive.meta()?.sso) {
         <mk-alert tone="warning" class="reason">Password sign-in is not offered from this network.</mk-alert>
       }
       @if (passwordLogin()) {
@@ -70,6 +72,11 @@ import { AuthCard } from '../shared/auth-card';
       }
       .sso {
         margin-bottom: var(--mk-space-4);
+      }
+      .hint {
+        margin: 0;
+        text-align: center;
+        font-size: var(--mk-font-size-sm);
       }
       .or {
         display: flex;

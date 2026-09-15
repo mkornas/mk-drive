@@ -2,7 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { NAS_CONTRACT, type NasClient } from '../nas.ts';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Config } from '../config.ts';
-import { type Auth, clearSessionCookie, clientIp, passwordLoginAllowed, setSessionCookie } from '../auth.ts';
+import { type Auth, clearSessionCookie, clientIp, passwordLoginAllowed, resolvePasswordLogin, setSessionCookie } from '../auth.ts';
 import { PASSWORD_MIN, verifyPassword, type Users } from '../users.ts';
 import { badRequest, forbidden, HttpError } from '../errors.ts';
 import { sessionOnly } from './app-passwords.ts';
@@ -64,7 +64,8 @@ export function registerAccountRoutes(
     reason: req.identity ? undefined : req.authReason,
     demo: cfg.demo || undefined,
     sso: sso?.conf ? { name: sso.conf.name } : undefined,
-    passwordLogin: passwordLoginAllowed(req, cfg),
+    passwordLogin: passwordLoginAllowed(req, cfg, settings),
+    passwordLoginLocal: resolvePasswordLogin(cfg, settings).mode === 'local' || undefined,
     nas: cfg.nasSocket ? true : undefined,
     nasOutdated: await outdated(),
     nasAgent: await agentVersion(req),
@@ -128,9 +129,24 @@ export function registerAccountRoutes(
   });
 
   app.post<{ Body: { email?: unknown; password?: unknown } }>('/api/login', async (req, reply): Promise<Identity> => {
-    if (!passwordLoginAllowed(req, cfg)) throw forbidden('password sign-in is not available from here');
     const ip = clientIp(req, cfg.trustedProxies);
     const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    // judged before the password is looked at, so a refusal says nothing about whether it was right
+    if (!passwordLoginAllowed(req, cfg, settings)) {
+      const off = resolvePasswordLogin(cfg, settings).mode === 'off';
+      // audited on the throttle's back-off per address, so a flood of refused attempts cannot fill the log
+      if (auth.throttle.retryAfter(`refused:${ip}`) === 0) {
+        auth.throttle.failed(`refused:${ip}`);
+        users.audit({
+          userId: null,
+          email: email || '?',
+          action: 'login.failed',
+          detail: `password sign-in ${off ? 'is off' : 'outside the local network'} (${ip})`,
+        });
+      }
+      const instead = sso?.conf ? `; use “Sign in with ${sso.conf.name}”` : '';
+      throw forbidden(off ? `password sign-in is off on this drive${instead}` : `password sign-in works only on the local network here${instead}`);
+    }
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
     // the address and the account are claimed while the password is checked: a concurrent attempt on either waits
     const keys = email ? [ip, `email:${email}`] : [ip];
