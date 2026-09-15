@@ -189,10 +189,17 @@ interface Bay {
                 <div class="bay__id mono">{{ b.disk.id }}</div>
                 <div class="bay__role">
                   {{ b.label }}
-                  @if (b.disk.smart?.temperature !== null && b.disk.smart?.temperature !== undefined) {
+                  @if (b.disk.asleep) {
+                    <span class="bay__temp">asleep</span>
+                  } @else if (b.disk.smart?.temperature !== null && b.disk.smart?.temperature !== undefined) {
                     <span class="bay__temp" [class.bay__temp--hot]="(b.disk.smart?.temperature ?? 0) >= 50">{{ b.disk.smart?.temperature }} °C</span>
                   }
                 </div>
+                @if (b.disk.smart?.testing; as t) {
+                  <div class="bay__test">
+                    {{ t.kind === 'long' ? 'Long' : 'Short' }} self-test{{ t.percentDone !== null ? ', ' + t.percentDone + '%' : '' }}
+                  </div>
+                }
                 @if (b.reason) {
                   <div class="bay__reason">{{ b.reason }}</div>
                 }
@@ -518,6 +525,11 @@ interface Bay {
       }
       .bay__temp--hot {
         color: var(--mk-warning);
+      }
+      .bay__test {
+        margin-top: var(--mk-space-1);
+        font-size: var(--mk-font-size-xs);
+        color: var(--mk-info);
       }
       .bay__reason {
         margin-top: var(--mk-space-1);

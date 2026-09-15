@@ -53,7 +53,9 @@ interface Attr {
           <div class="tests__head">
             <h3>Self-tests</h3>
             <span class="spacer"></span>
-            @if (s.selfTest.running; as r) {
+            @if (s.selfTest.supported === false) {
+              <span class="muted small">this disk cannot run self-tests</span>
+            } @else if (s.selfTest.running; as r) {
               <span class="muted small">{{ r.kind }} test running</span>
             } @else {
               <button mkButton variant="ghost" size="sm" [loading]="busy()" (click)="test('short')">Short test</button>
@@ -75,9 +77,9 @@ interface Attr {
                 </li>
               }
             </ul>
-          } @else if (!s.selfTest.running) {
+          } @else if (!s.selfTest.running && s.selfTest.supported !== false) {
             <p class="muted small">
-              None on record. A short test takes minutes; a long one reads the whole disk and takes hours. The NAS runs a long one monthly by itself.
+              None on record. A short test takes minutes; a long one reads the whole disk and takes hours. The NAS runs a long one monthly by itself, at night.
             </p>
           }
         </section>

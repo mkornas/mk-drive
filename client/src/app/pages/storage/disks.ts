@@ -67,7 +67,13 @@ import { SmartDialog } from './smart-dialog';
               }
             </ng-template>
             <ng-template mkTableCell="temp" let-row="row">
-              @if (row.smart?.temperature !== null && row.smart?.temperature !== undefined) {
+              @if (row.asleep) {
+                <span
+                  class="muted nowrap"
+                  [attr.title]="row.smart?.temperature != null ? 'In standby; ' + row.smart.temperature + ' °C when last awake' : 'In standby'"
+                  >asleep</span
+                >
+              } @else if (row.smart?.temperature !== null && row.smart?.temperature !== undefined) {
                 <span class="nowrap" [class.warm]="row.smart.temperature >= 45" [class.hot]="row.smart.temperature >= 55">{{ row.smart.temperature }} °C</span>
               } @else {
                 <span class="muted">—</span>
@@ -95,6 +101,9 @@ import { SmartDialog } from './smart-dialog';
                   }
                   @if (s.pending) {
                     <mk-tag size="sm" tone="warning">{{ s.pending }} pending</mk-tag>
+                  }
+                  @if (s.testing; as t) {
+                    <mk-tag size="sm" tone="info">{{ t.kind }} self-test{{ t.percentDone !== null ? ' ' + t.percentDone + '%' : '' }}</mk-tag>
                   }
                   @if (s.wear !== null) {
                     <span class="muted">{{ s.wear }}% worn</span>
