@@ -25,6 +25,7 @@ import type {
   SmbUser as NasSmbUser,
   Snapshot as NasSnapshot,
   System as NasSystem,
+  Tunnel as NasTunnel,
   Update as NasUpdate,
   Version as NasVersion,
   ZfsEvent,
@@ -166,6 +167,10 @@ export class ApiService {
     system: (): Promise<NasSystem> => this.get('/api/nas/system'),
     /** `viaTunnel`: this browser reaches the drive through Cloudflare, away from the box. */
     power: (): Promise<NasPower & { viaTunnel: boolean }> => this.get('/api/nas/power'),
+    tunnel: (): Promise<NasTunnel & { viaTunnel: boolean }> => this.get('/api/nas/tunnel'),
+    setTunnel: (token: string): Promise<NasTunnel & { viaTunnel: boolean }> =>
+      firstValueFrom(this.http.put<NasTunnel & { viaTunnel: boolean }>('/api/nas/tunnel', { token })),
+    removeTunnel: (): Promise<NasTunnel & { viaTunnel: boolean }> => this.delete('/api/nas/tunnel'),
     update: (): Promise<NasUpdate> => this.get('/api/nas/update'),
     checkUpdate: (): Promise<NasUpdate> => this.post('/api/nas/update/check', {}),
     installUpdate: (version: string): Promise<NasUpdate> => this.post('/api/nas/update/install', { version }),

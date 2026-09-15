@@ -43,6 +43,7 @@ import type {
   SmbUser,
   Snapshot,
   System,
+  Tunnel,
   Update,
   Version,
   ZfsEvent,
@@ -81,6 +82,31 @@ export function registerNasRoutes(app: FastifyInstance, nas: NasClient, location
     admin(req);
     return { ...(await nas.call('power')), viaTunnel: typeof req.headers['cf-connecting-ip'] === 'string' };
   });
+  // ---- the Cloudflare Tunnel: changing it through itself would cut the very connection in use, so that is refused ----
+  const viaTunnel = (req: FastifyRequest) => typeof req.headers['cf-connecting-ip'] === 'string';
+  const notThroughTunnel = (req: FastifyRequest) => {
+    if (viaTunnel(req)) throw forbidden('this page is open through the tunnel: changing it would cut this connection. Do it from home, on the local network');
+  };
+  app.get('/api/nas/tunnel', async (req): Promise<Tunnel & { viaTunnel: boolean }> => {
+    admin(req);
+    return { ...(await nas.call('tunnel')), viaTunnel: viaTunnel(req) };
+  });
+  app.put('/api/nas/tunnel', async (req): Promise<Tunnel & { viaTunnel: boolean }> => {
+    admin(req);
+    notThroughTunnel(req);
+    const { token } = pick<{ token: string }>(req.body, ['token']);
+    const t = await nas.call('tunnel.set', { token });
+    audit(req, 'nas.tunnel.set', { tunnelId: t.tunnelId });
+    return { ...t, viaTunnel: false };
+  });
+  app.delete('/api/nas/tunnel', async (req): Promise<Tunnel & { viaTunnel: boolean }> => {
+    admin(req);
+    notThroughTunnel(req);
+    const t = await nas.call('tunnel.remove');
+    audit(req, 'nas.tunnel.remove', {});
+    return { ...t, viaTunnel: false };
+  });
+
   app.get('/api/nas/update', async (req): Promise<Update> => {
     admin(req);
     return nas.call('update');

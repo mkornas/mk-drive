@@ -94,6 +94,26 @@ function fakeAgent(path: string): Promise<Server> {
                   },
                 },
           );
+        else if (req.verb === 'tunnel' || req.verb === 'tunnel.set' || req.verb === 'tunnel.remove')
+          reply(
+            req.verb === 'tunnel.set' && req.args?.token !== 'good-token'
+              ? { ok: false, error: { code: 'bad-args', message: 'token: that is not a tunnel token' } }
+              : {
+                  ok: true,
+                  result: {
+                    configured: req.verb !== 'tunnel.remove',
+                    tunnelId: req.verb === 'tunnel.remove' ? null : 't-1',
+                    state: req.verb === 'tunnel.remove' ? 'off' : 'connected',
+                    container: null,
+                    since: null,
+                    restarts: 0,
+                    connections: 4,
+                    hostnames: ['drive.example.com'],
+                    lastConnectedAt: null,
+                    lastError: null,
+                  },
+                },
+          );
         else if (req.verb === 'power') reply({ ok: true, result: { restartNeeded: true, packages: ['linux-base'], busy: ['Scrub of tank, 40%'] } });
         else if (req.verb === 'system.reboot' || req.verb === 'system.shutdown')
           reply(
@@ -380,6 +400,31 @@ test('power: restart needed and running work, whether the request came through t
   assert.equal(res.json<{ action: string }>().action, 'shutdown');
   assert.deepEqual(seen.at(-1), { id: seen.at(-1)!.id, verb: 'system.shutdown', args: { confirm: 'nas' } });
   assert.equal((await app.inject(json('POST', '/api/nas/system/reboot', { confirm: 'nas' }, member))).statusCode, 403);
+});
+
+test('tunnel: status for admins; set and remove refused through the tunnel itself; the token never reaches the audit', async () => {
+  let res = await app.inject({ url: '/api/nas/tunnel', headers: { cookie: admin } });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual([res.json().state, res.json().viaTunnel], ['connected', false]);
+  res = await app.inject({ url: '/api/nas/tunnel', headers: { cookie: admin, 'cf-connecting-ip': '203.0.113.9' } });
+  assert.equal(res.json().viaTunnel, true);
+  assert.equal((await app.inject({ url: '/api/nas/tunnel', headers: { cookie: member } })).statusCode, 403);
+
+  const through = {
+    ...json('PUT', '/api/nas/tunnel', { token: 'good-token' }, admin),
+    headers: { ...json('PUT', '/api/nas/tunnel', {}, admin).headers, 'cf-connecting-ip': '203.0.113.9' },
+  };
+  assert.equal((await app.inject(through)).statusCode, 403, 'not through the tunnel');
+  assert.equal((await app.inject({ method: 'DELETE', url: '/api/nas/tunnel', headers: { cookie: admin, 'cf-connecting-ip': '203.0.113.9' } })).statusCode, 403);
+  assert.equal((await app.inject(json('PUT', '/api/nas/tunnel', { token: 'bad' }, admin))).statusCode, 400);
+  res = await app.inject(json('PUT', '/api/nas/tunnel', { token: 'good-token', extra: 1 }, admin));
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(seen.at(-1), { id: seen.at(-1)!.id, verb: 'tunnel.set', args: { token: 'good-token' } });
+  res = await app.inject({ method: 'DELETE', url: '/api/nas/tunnel', headers: { cookie: admin } });
+  assert.equal(res.json().state, 'off');
+  const audit = (await app.inject({ url: '/api/audit', headers: { cookie: admin } })).json();
+  assert.ok(!JSON.stringify(audit).includes('good-token'), 'the token is not in the drive audit');
+  assert.ok(audit.some((a: { action: string }) => a.action === 'nas.tunnel.set'));
 });
 
 test('update: read, check now, install exactly the version with only its key; admins only', async () => {
