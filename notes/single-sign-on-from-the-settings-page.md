@@ -1,0 +1,3 @@
+# Single sign-on from the Settings page
+
+- 2026-09-15 12:40 — Settings → Sign-in (admins): name, issuer, client ID, secret; discovery checked before saving, stored in settings, live without restart, secret never returned; env DRIVE_OIDC_* wins (read-only, 409); refused to turn off with DRIVE_PASSWORD_LOGIN=off. Tests: full round trip with a saved provider, env precedence, member 403, password-off refusal (101 pass). Checked in the VM drive: an unreachable issuer is refused, Google's discovery with a dummy client saved and /auth/login redirected there, the page showed it on, Turn off returned it to off. — main @ 9e83dfe Single sign-on from Settings → Sign-in

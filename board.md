@@ -1,6 +1,6 @@
 ---
 kanban-plugin: board
-updated: 2026-09-14
+updated: 2026-09-15
 ---
 
 # mk-drive
@@ -27,6 +27,7 @@ One card per line, ranked top-down inside each column. `#p0`..`#p3` = priority, 
 - [ ] **iOS app** File Provider extension over /api (ETags, chunked uploads); Swift, separate repo, after the web app is stable #p3 #beyond
 
 ## Done
+- [x] **Single sign-on from the Settings page** an admin sets the OpenID Connect provider (button name, issuer, client ID, secret) under Settings → Sign-in, stored in the drive's database, checked against the provider before it is saved; the redirect and logout URIs shown to copy; DRIVE_OIDC_* in the environment still wins and shows read-only; turning it off never locks out the admin who is signed in through it #p1 #auth [[single-sign-on-from-the-settings-page]]
 - [x] *Network settings page** Storage → Network: hostname, per-interface DHCP/static address, gateway, DNS; a change is applied with a countdown and reverts unless the page confirms it still reaches the NAS; shows the mDNS name to type on other machines #p2 #nas [[network-settings-page-storage-network-hostname-per-interface]]
 - [x] *Storage overview: vitals with graphs** a row of sparklines on the Overview from the agent's system verb — CPU, memory, network in/out, disk I/O, the hottest temperature — with the last 30 minutes, following the dataviz rules (one palette, no chart junk); the pool bars stay the hero #p2 #nas [[storage-overview-vitals-with-graphs-a-row-of-sparklines-on-t]]
 - [x] *First-run wizard** an empty NAS gets one flow instead of three pages: pick two free disks → mirror → first dataset as a location → done; the same steps the pages offer, in order, with the typed confirmation once #p1 #nas [[first-run-wizard-an-empty-nas-gets-one-flow-instead-of-three]]
