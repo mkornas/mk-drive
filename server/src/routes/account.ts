@@ -57,7 +57,7 @@ export function registerAccountRoutes(
     setupRequired: users.count() === 0,
     reason: req.identity ? undefined : req.authReason,
     demo: cfg.demo || undefined,
-    sso: cfg.oidcIssuer && cfg.oidcClientId && cfg.oidcClientSecret ? { name: cfg.oidcName } : undefined,
+    sso: sso?.conf ? { name: sso.conf.name } : undefined,
     passwordLogin: passwordLoginAllowed(req, cfg),
     nas: cfg.nasSocket ? true : undefined,
     nasOutdated: await outdated(),

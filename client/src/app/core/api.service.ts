@@ -38,6 +38,8 @@ import type {
 } from '../../../../shared/nas';
 import type {
   AccessLevel,
+  SsoSettings,
+  SsoSettingsInput,
   AppPassword,
   Arrival,
   FolderStats,
@@ -146,6 +148,15 @@ export class ApiService {
   /** The drive's name in the header (admins); an empty name puts the default back. */
   renameDrive(name: string): Promise<{ name: string | null }> {
     return firstValueFrom(this.http.put<{ name: string | null }>('/api/settings/name', { name }));
+  }
+  ssoSettings(): Promise<SsoSettings> {
+    return this.get('/api/settings/sso');
+  }
+  setSsoSettings(input: SsoSettingsInput): Promise<SsoSettings> {
+    return firstValueFrom(this.http.put<SsoSettings>('/api/settings/sso', input));
+  }
+  removeSsoSettings(): Promise<SsoSettings> {
+    return this.delete('/api/settings/sso');
   }
 
   // ---- NAS mode (admin; only when the mk-nas socket is mounted) ----

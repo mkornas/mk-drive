@@ -114,9 +114,13 @@ grants on every request; the UI only hides what you cannot open.
   fallback at home; `off` removes it everywhere. The server refuses
   `/api/login` accordingly; the page merely follows.
 - **Single sign-on** — point the drive at any OpenID Connect provider
-  (`DRIVE_OIDC_ISSUER`, `DRIVE_OIDC_CLIENT_ID`, `DRIVE_OIDC_CLIENT_SECRET`,
-  and `DRIVE_OIDC_NAME` for the button) and the sign-in page gets a
-  "Sign in with …" button. The provider says who you are; the drive still
+  (Pocket ID, Authentik, Keycloak, …) on **Settings → Sign-in** (admins): a
+  button name, the issuer, the client ID and secret, checked against the
+  provider before they are saved, and the sign-in page gets a "Sign in with …"
+  button. Nothing ships configured. A deployment that configures itself can
+  set `DRIVE_OIDC_ISSUER`, `DRIVE_OIDC_CLIENT_ID`, `DRIVE_OIDC_CLIENT_SECRET`
+  (and `DRIVE_OIDC_NAME`) instead; those win, and the page shows them
+  read-only. The provider says who you are; the drive still
   only lets in emails that have an account here. Register
   `https://<your drive>/auth/callback` as the redirect URI at the provider,
   and `https://<your drive>/login` as the logout redirect: signing out of a
@@ -221,7 +225,7 @@ the drive notices the snapshot directory on its own.
 | `DRIVE_DB` | `<data dir>/mk-drive.db` | The SQLite file (users, sessions, grants, audit) |
 | `DRIVE_SESSION_DAYS` | `30` | Session lifetime |
 | `DRIVE_ACCESS_TEAM` / `DRIVE_ACCESS_AUD` | — | Cloudflare Access team and application audience |
-| `DRIVE_OIDC_ISSUER` / `DRIVE_OIDC_CLIENT_ID` / `DRIVE_OIDC_CLIENT_SECRET` | — | OpenID Connect single sign-on (all three enable it) |
+| `DRIVE_OIDC_ISSUER` / `DRIVE_OIDC_CLIENT_ID` / `DRIVE_OIDC_CLIENT_SECRET` | — | OpenID Connect single sign-on (all three enable it, and take over from Settings → Sign-in) |
 | `DRIVE_OIDC_NAME` | `Single sign-on` | What the sign-in button says |
 | `DRIVE_COOKIE_SECRET` | random per start | Signs the ten-minute login cookie used during SSO |
 | `DRIVE_PASSWORD_LOGIN` | `on` | Where the password form is offered: `on`, `lan` (private addresses only), `off` |

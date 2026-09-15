@@ -156,6 +156,33 @@ export interface AuditEntry {
   detail: string;
 }
 
+/** Single sign-on as the Settings → Sign-in page sees it. The client secret never leaves the server. */
+export interface SsoSettings {
+  /** 'env' when DRIVE_OIDC_* configure it (read-only here), 'settings' when an admin saved it, null when it is off. */
+  source: 'env' | 'settings' | null;
+  name: string;
+  issuer: string;
+  clientId: string;
+  hasSecret: boolean;
+  /** The provider answered its discovery document. */
+  ready: boolean;
+  /** Why it did not, the last time the drive asked. */
+  error: string | null;
+  /** What to register at the provider, for the address this page is open on. */
+  redirectUri: string;
+  logoutRedirectUri: string;
+  /** Password sign-in is off on this drive: a wrong client ID or secret would leave nobody a way in. */
+  passwordLoginOff: boolean;
+}
+
+export interface SsoSettingsInput {
+  name?: string;
+  issuer: string;
+  clientId: string;
+  /** Omitted or empty keeps the secret already saved. */
+  clientSecret?: string;
+}
+
 export interface Meta {
   app: 'mk-drive';
   version: string;

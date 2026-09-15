@@ -38,6 +38,7 @@ const SETTINGS: SettingsLink[] = [
   { label: 'Links', path: '/settings/links', icon: 'link' },
   { label: 'People', path: '/settings/people', icon: 'users', admin: true },
   { label: 'Locations', path: '/settings/locations', icon: 'hard-drive', admin: true },
+  { label: 'Sign-in', path: '/settings/sign-in', icon: 'key-round', admin: true },
   { label: 'Activity', path: '/settings/activity', icon: 'history', admin: true },
 ];
 

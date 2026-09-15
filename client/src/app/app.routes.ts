@@ -22,6 +22,7 @@ export const routes: Routes = [
       { path: 'links', loadComponent: () => import('./pages/settings/shares').then((m) => m.SharesPage), title: 'Links · mk-drive' },
       { path: 'people', loadComponent: () => import('./pages/settings/people').then((m) => m.PeoplePage), title: 'People · mk-drive' },
       { path: 'locations', loadComponent: () => import('./pages/settings/locations').then((m) => m.LocationsPage), title: 'Locations · mk-drive' },
+      { path: 'sign-in', loadComponent: () => import('./pages/settings/sign-in').then((m) => m.SignInSettingsPage), title: 'Sign-in · mk-drive' },
       { path: 'activity', loadComponent: () => import('./pages/settings/activity').then((m) => m.ActivityPage), title: 'Activity · mk-drive' },
     ],
   },

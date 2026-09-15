@@ -4,7 +4,7 @@ import fastifyStatic from '@fastify/static';
 import { existsSync } from 'node:fs';
 import type { Config } from './config.ts';
 import { createAuth, registerAuth } from './auth.ts';
-import { SsoProvider, registerSso, ssoEnabled } from './sso.ts';
+import { SsoProvider, registerSso, resolveSso } from './sso.ts';
 import { Locations } from './locations.ts';
 import { openDb } from './db.ts';
 import { Users } from './users.ts';
@@ -30,6 +30,7 @@ import { seedDemo, seedDemoUsers } from './demo.ts';
 import { HttpError } from './errors.ts';
 import { NasClient } from './nas.ts';
 import { registerNasRoutes } from './routes/nas.ts';
+import { registerSsoSettingsRoutes } from './routes/sso-settings.ts';
 
 /** What the browser may load for the app itself (the file endpoint has its own, stricter, rules). */
 const APP_CSP = [
@@ -49,7 +50,14 @@ const APP_CSP = [
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 /** Mutations the demo drive refuses (see the hook below). */
-const DEMO_LOCKED = [/^\/api\/account(\/password)?$/, /^\/api\/settings\/name$/, /^\/api\/users(\/|$)/, /^\/api\/connectors(\/|$)/, /^\/api\/sessions(\/|$)/, /^\/api\/app-passwords\/[^/]+$/];
+const DEMO_LOCKED = [
+  /^\/api\/account(\/password)?$/,
+  /^\/api\/settings\/(name|sso)$/,
+  /^\/api\/users(\/|$)/,
+  /^\/api\/connectors(\/|$)/,
+  /^\/api\/sessions(\/|$)/,
+  /^\/api\/app-passwords\/[^/]+$/,
+];
 
 export async function createApp(cfg: Config, opts: { logger?: boolean } = {}): Promise<FastifyInstance> {
   // trustProxy stays off: auth.ts derives the client address itself (Cloudflare header, or X-Forwarded-For from a trusted proxy only)
@@ -106,8 +114,9 @@ export async function createApp(cfg: Config, opts: { logger?: boolean } = {}): P
     if (len > 0 && type !== 'application/json' && type !== 'application/octet-stream') return reply.code(415).send({ ok: false, message: 'send JSON' });
   });
 
-  const sso = ssoEnabled(cfg) ? new SsoProvider(cfg, app.log) : null;
-  if (sso) await sso.connect(); // best effort: a provider that is still booting is retried on the first login
+  // the provider comes from the environment or the Settings page, read on every use; none set up leaves the routes refusing
+  const sso = new SsoProvider(() => resolveSso(cfg, settings)?.conf ?? null, app.log);
+  await sso.connect(); // best effort: a provider that is still booting is retried on the first login
 
   registerAuth(app, auth);
   if (cfg.demo) {
@@ -118,7 +127,13 @@ export async function createApp(cfg: Config, opts: { logger?: boolean } = {}): P
     app.addHook('onRequest', async (req, reply) => {
       const path = req.url.split('?')[0];
       if (MUTATING.has(req.method) && DEMO_LOCKED.some((r) => r.test(path))) {
-        return reply.code(403).send({ ok: false, message: 'Not on the demo drive: accounts, passwords, people, locations and connectors stay as they are. Files, folders and share links are all yours.' });
+        return reply
+          .code(403)
+          .send({
+            ok: false,
+            message:
+              'Not on the demo drive: accounts, passwords, people, locations and connectors stay as they are. Files, folders and share links are all yours.',
+          });
       }
     });
   }
@@ -130,7 +145,8 @@ export async function createApp(cfg: Config, opts: { logger?: boolean } = {}): P
   }
   registerAccountRoutes(app, cfg, auth, users, sso, nas, settings);
   registerAppPasswordRoutes(app, users);
-  if (sso) registerSso(app, cfg, users, sso);
+  registerSso(app, cfg, users, sso);
+  registerSsoSettingsRoutes(app, cfg, users, settings, sso);
   registerFileRoutes(app, access, locations, users);
   registerAdminRoutes(app, users, locations);
   registerOpRoutes(app, access, locations, users, ops);

@@ -19,6 +19,7 @@ const TABS: Tab[] = [
   { label: 'Links', path: '/settings/links', icon: 'link' },
   { label: 'People', path: '/settings/people', icon: 'users', admin: true },
   { label: 'Locations', path: '/settings/locations', icon: 'hard-drive', admin: true },
+  { label: 'Sign-in', path: '/settings/sign-in', icon: 'key-round', admin: true },
   { label: 'Activity', path: '/settings/activity', icon: 'history', admin: true },
 ];
 
@@ -31,7 +32,9 @@ const TABS: Tab[] = [
     <div class="page page--narrow">
       <nav class="tabs" aria-label="Settings sections">
         @for (t of tabs(); track t.path) {
-          <a [routerLink]="t.path" class="tab" [class.tab--active]="active() === t.path" [attr.aria-current]="active() === t.path ? 'page' : null"><mk-icon [name]="t.icon" size="sm" />{{ t.label }}</a>
+          <a [routerLink]="t.path" class="tab" [class.tab--active]="active() === t.path" [attr.aria-current]="active() === t.path ? 'page' : null"
+            ><mk-icon [name]="t.icon" size="sm" />{{ t.label }}</a
+          >
         }
       </nav>
       <header class="head">

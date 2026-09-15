@@ -110,10 +110,16 @@ Three doors, all optional beyond the first:
   offered: `on` everywhere (default), `lan` only from private addresses (the
   internet then sees single sign-on alone), `off` never.
 - **Single sign-on** — any OpenID Connect provider (Pocket ID, Authelia,
-  Keycloak, …). Set `DRIVE_OIDC_ISSUER`, `DRIVE_OIDC_CLIENT_ID`,
-  `DRIVE_OIDC_CLIENT_SECRET` and a `DRIVE_OIDC_NAME` for the button; register
-  `https://<drive>/auth/callback` as the redirect URI and
-  `https://<drive>/login` as the logout URL at the provider. The provider says
+  Keycloak, …). An admin sets it on **Settings → Sign-in**: register the
+  client at the provider with the redirect URI and logout URL that page shows
+  (`https://<drive>/auth/callback`, `https://<drive>/login`), then enter the
+  button name, issuer, client ID and secret. The drive reads the provider's
+  discovery document before saving, keeps the secret in its database and
+  never shows it again; it takes effect without a restart. Or set
+  `DRIVE_OIDC_ISSUER`, `DRIVE_OIDC_CLIENT_ID`, `DRIVE_OIDC_CLIENT_SECRET` and
+  `DRIVE_OIDC_NAME` in the environment: those win and the page shows them
+  read-only. With `DRIVE_PASSWORD_LOGIN=off` the page will not turn single
+  sign-on off. The provider says
   who you are; the drive still only lets in emails that have an account here.
   Nobody is created automatically.
 - **Cloudflare Access** — if the drive sits behind an Access application, set
