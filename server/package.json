@@ -1,7 +1,7 @@
 {
   "name": "mk-drive-server",
   "private": true,
-  "version": "0.6.1",
+  "version": "0.7.0",
   "type": "module",
   "description": "mk-drive API: locations, listings, streamed files. Fastify on Node 24, no build step.",
   "license": "AGPL-3.0-only",
