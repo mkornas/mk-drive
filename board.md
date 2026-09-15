@@ -20,11 +20,7 @@ One card per line, ranked top-down inside each column. `#p0`..`#p3` = priority, 
 - [ ] **iOS app** native SwiftUI app + Files adapter (File Provider) + read-only Storage tab, in its own repo mk-drive-ios; the plan with milestones M0–M7 is docs/ios-app-plan.md — worked on macOS #p2 #ios
 - [ ] **iOS app: say why a home address is refused** when iOS blocks plain http (NSURLErrorAppTransportSecurityRequiresSecureConnection, -1022) — a name like nas.home.arpa is neither an IP, a .local name nor dotless — tell the person to type http://<box>.local:8810 or the IP with the port instead of a generic 'can't connect'; and when a local address times out, mention Local Network permission and that a guest network may not reach the server #p2 #ios
 - [ ] **iOS app: a home and an outside address** the account keeps two server addresses for the same drive (e.g. http://mk-nas.local:8810 and https://drive.example.com), uses the local one when it answers on the current network and the outside one otherwise, re-checked when the network changes; both ends are the same drive, so the app password and the Files adapter's items stay valid; the Files extension follows the same choice #p2 #ios
-- [ ] *Security: CSRF on same-site body-less POSTs** allow only sec-fetch-site same-origin/none or an Origin matching Host on mutations; __Host- cookie prefix on HTTPS #p2 #security
-- [ ] *Security: app passwords survive a password change or reset** revoke them on admin reset (and offer revoke-all on change) #p2 #security
-- [ ] *Security: user-share takeover** a weaker user re-sharing the same path takes over and downgrades an existing share: keep the existing owner #p2 #security
-- [ ] *Security: open redirect in @mk-kit/auth safeNext** /\t/evil passes: reject control characters, parse against the origin (fix in mk-kit, then bump) #p2 #security
-- [ ] *Security: Web Share Target accepts cross-site POSTs** ignore /share POSTs that are not from the installed app #p3 #security
+- [ ] *Security: open redirect in @mk-kit/auth safeNext** /\t/evil passes: reject control characters, parse against the origin (fix in mk-kit, then bump) #p2 #security [[security-open-redirect-in-mk-kit-auth-safenext-t-evil-passes]]
 
 ## Later
 
@@ -32,6 +28,10 @@ One card per line, ranked top-down inside each column. `#p0`..`#p3` = priority, 
 - [ ] **iOS app** File Provider extension over /api (ETags, chunked uploads); Swift, separate repo, after the web app is stable #p3 #beyond
 
 ## Done
+- [x] *Security: Web Share Target accepts cross-site POSTs** ignore /share POSTs that are not from the installed app #p3 #security [[security-web-share-target-accepts-cross-site-posts-ignore-sh]]
+- [x] *Security: user-share takeover** a weaker user re-sharing the same path takes over and downgrades an existing share: keep the existing owner #p2 #security [[security-user-share-takeover-a-weaker-user-re-sharing-the-sa]]
+- [x] *Security: app passwords survive a password change or reset** revoke them on admin reset (and offer revoke-all on change) #p2 #security [[security-app-passwords-survive-a-password-change-or-reset-re]]
+- [x] *Security: CSRF on same-site body-less POSTs** allow only sec-fetch-site same-origin/none or an Origin matching Host on mutations; __Host- cookie prefix on HTTPS #p2 #security [[security-csrf-on-same-site-body-less-posts-allow-only-sec-fe]]
 - [x] **SMB access per share (drive)** the share dialog's who-can-open list prefilled from the location's grants, existing shares become admins-only, the Shares page says who can connect per share #p1 #shares #security [[smb-access-per-share-drive]]
 - [x] *Security: logout without a session returns 500** sessionOnly reads identity.via on undefined #p3 #bug [[security-logout-without-a-session-returns-500-sessiononly-re]]
 - [x] *Security: demo lock bypass** /api/%61ccount/password passes the demo lock (checked on the raw URL): check the decoded path — the public demo is affected #p0 #security [[security-demo-lock-bypass-api-61ccount-password-passes-the-d]]
