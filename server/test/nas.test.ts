@@ -74,6 +74,26 @@ function fakeAgent(path: string): Promise<Server> {
             },
           });
         else if (req.verb === 'shares') reply({ ok: true, result: [] });
+        else if (req.verb === 'update' || req.verb === 'update.check' || req.verb === 'update.install')
+          reply(
+            req.verb === 'update.install' && req.args?.version !== '0.6.0'
+              ? { ok: false, error: { code: 'bad-args', message: 'not the newest release' } }
+              : {
+                  ok: true,
+                  result: {
+                    current: '0.5.0',
+                    drive: '0.3.0',
+                    latest: { version: '0.6.0', drive: '0.3.1', contract: 2, notes: '', publishedAt: 'then', url: 'u', signed: true },
+                    checkedAt: 'now',
+                    error: null,
+                    available: true,
+                    run:
+                      req.verb === 'update.install'
+                        ? { id: 1, version: '0.6.0', state: 'running', step: 'starting', startedAt: 'now', finishedAt: null, message: null }
+                        : null,
+                  },
+                },
+          );
         else if (req.verb === 'power') reply({ ok: true, result: { restartNeeded: true, packages: ['linux-base'], busy: ['Scrub of tank, 40%'] } });
         else if (req.verb === 'system.reboot' || req.verb === 'system.shutdown')
           reply(
@@ -358,6 +378,25 @@ test('power: restart needed and running work, whether the request came through t
   assert.equal(res.json<{ action: string }>().action, 'shutdown');
   assert.deepEqual(seen.at(-1), { id: seen.at(-1)!.id, verb: 'system.shutdown', args: { confirm: 'nas' } });
   assert.equal((await app.inject(json('POST', '/api/nas/system/reboot', { confirm: 'nas' }, member))).statusCode, 403);
+});
+
+test('update: read, check now, install exactly the version with only its key; admins only', async () => {
+  let res = await app.inject({ url: '/api/nas/update', headers: { cookie: admin } });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json<{ available: boolean }>().available, true);
+  res = await app.inject(json('POST', '/api/nas/update/check', {}, admin));
+  assert.equal(seen.at(-1)?.verb, 'update.check');
+  assert.equal((await app.inject(json('POST', '/api/nas/update/install', { version: '0.5.9' }, admin))).statusCode, 400);
+  res = await app.inject(json('POST', '/api/nas/update/install', { version: '0.6.0', force: true }, admin));
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(seen.at(-1), { id: seen.at(-1)!.id, verb: 'update.install', args: { version: '0.6.0' } });
+  assert.equal(res.json<{ run: { state: string } }>().run.state, 'running');
+  for (const [method, url] of [
+    ['GET', '/api/nas/update'],
+    ['POST', '/api/nas/update/check'],
+    ['POST', '/api/nas/update/install'],
+  ] as const)
+    assert.equal((await app.inject(json(method, url, method === 'GET' ? undefined : { version: '0.6.0' }, member))).statusCode, 403);
 });
 
 test('events: newest first, the routine ones only when asked', async () => {

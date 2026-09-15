@@ -43,6 +43,7 @@ import type {
   SmbUser,
   Snapshot,
   System,
+  Update,
   Version,
   ZfsEvent,
 } from '../../../shared/nas.ts';
@@ -79,6 +80,21 @@ export function registerNasRoutes(app: FastifyInstance, nas: NasClient, location
   app.get('/api/nas/power', async (req): Promise<Power & { viaTunnel: boolean }> => {
     admin(req);
     return { ...(await nas.call('power')), viaTunnel: typeof req.headers['cf-connecting-ip'] === 'string' };
+  });
+  app.get('/api/nas/update', async (req): Promise<Update> => {
+    admin(req);
+    return nas.call('update');
+  });
+  app.post('/api/nas/update/check', async (req): Promise<Update> => {
+    admin(req);
+    return nas.call('update.check');
+  });
+  app.post('/api/nas/update/install', async (req): Promise<Update> => {
+    admin(req);
+    const { version } = pick<{ version: string }>(req.body, ['version']);
+    const u = await nas.call('update.install', { version });
+    audit(req, 'nas.update.install', { version });
+    return u;
   });
   for (const action of ['reboot', 'shutdown'] as const) {
     app.post(`/api/nas/system/${action}`, async (req): Promise<PowerScheduled> => {

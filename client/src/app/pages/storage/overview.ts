@@ -4,7 +4,7 @@ import { MkButton } from '@mk-kit/ui/button';
 import { MkIcon } from '@mk-kit/ui/icon';
 import { MkTag } from '@mk-kit/ui/data';
 import { MkAlert, MkDialogService, MkToastService } from '@mk-kit/ui/feedback';
-import type { Disk, Health, PoolSummary, Power, PowerAction, PowerScheduled, Scrub, Snapshot, System, Version } from '../../../../../shared/nas';
+import type { Disk, Health, PoolSummary, Power, PowerAction, PowerScheduled, Scrub, Snapshot, System, Update, Version } from '../../../../../shared/nas';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { DriveService } from '../../core/drive.service';
 import { ago, bytes } from '../../core/format';
@@ -239,6 +239,42 @@ interface Bay {
               <span class="muted small">Upgrade mk-nas to reboot or shut down from here.</span>
             }
           </div>
+          @if (update(); as u) {
+            <div class="update">
+              @if (u.run?.state === 'running') {
+                <mk-alert tone="info" [title]="'Installing mk-nas ' + u.run!.version" class="alert">
+                  {{ restarting() ? 'The drive is restarting on the new version' : 'Now: ' + u.run!.step }}. This page follows along; nothing needs doing
+                  meanwhile.
+                </mk-alert>
+              } @else if (u.run?.state === 'failed' && u.run!.version !== u.current) {
+                <mk-alert tone="danger" [title]="'Installing mk-nas ' + u.run!.version + ' failed'" class="alert">
+                  {{ u.run!.message }} (while {{ u.run!.step }}). mk-nas {{ u.current }} keeps running.
+                </mk-alert>
+              }
+              @if (u.available && u.latest && u.run?.state !== 'running') {
+                <div class="update__new">
+                  <div class="update__head">
+                    <mk-icon name="download" size="sm" />
+                    <strong>mk-nas {{ u.latest.version }} is out</strong>
+                    <span class="muted small">with mk-drive {{ u.latest.drive }} · released {{ f.ago(ms(u.latest.publishedAt)) }}</span>
+                    <span class="spacer"></span>
+                    <button mkButton variant="ghost" size="sm" (click)="notesOpen.set(!notesOpen())">
+                      {{ notesOpen() ? 'Hide the notes' : 'Release notes' }}
+                    </button>
+                    <button mkButton size="sm" [loading]="installing()" [disabled]="!!going()" (click)="install(u)">Install</button>
+                  </div>
+                  @if (notesOpen()) {
+                    <pre class="update__notes">{{ u.latest.notes || 'No notes.' }}</pre>
+                    <a class="small" [href]="u.latest.url" target="_blank" rel="noopener">The release on GitHub</a>
+                  }
+                </div>
+              }
+              <div class="update__status muted small">
+                <span>{{ updateLine(u) }}</span>
+                <button mkButton variant="ghost" size="sm" [loading]="checking()" (click)="check()">Check now</button>
+              </div>
+            </div>
+          }
         </section>
       }
     </app-storage>
@@ -500,6 +536,43 @@ interface Bay {
       .system .small {
         font-size: var(--mk-font-size-sm);
       }
+      .update {
+        margin-top: var(--mk-space-3);
+        display: grid;
+        gap: var(--mk-space-2);
+      }
+      .update__new {
+        padding: var(--mk-space-3) var(--mk-space-4);
+        border: 1px solid var(--mk-border-subtle);
+        border-radius: var(--mk-radius-lg);
+        background: var(--mk-surface);
+        display: grid;
+        gap: var(--mk-space-2);
+      }
+      .update__head {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: var(--mk-space-2);
+      }
+      .update__head .spacer {
+        flex: 1;
+      }
+      .update__notes {
+        margin: 0;
+        max-height: 20rem;
+        overflow: auto;
+        white-space: pre-wrap;
+        font-family: var(--mk-font-mono);
+        font-size: var(--mk-font-size-xs);
+        color: var(--mk-text-muted);
+      }
+      .update__status {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: var(--mk-space-2);
+      }
     `,
   ],
 })
@@ -521,6 +594,8 @@ export class StorageOverviewPage {
       this.api.nas.scrubs().catch(() => [] as Scrub[]),
       this.api.nas.power().catch(() => null),
     ]);
+    // an agent older than the update verbs leaves the block out
+    this.update.set(await this.api.nas.update().catch(() => null));
     return { health, version, disks, pools, snapshots, scrubs, power };
   });
 
@@ -573,9 +648,85 @@ export class StorageOverviewPage {
         .system()
         .then((s) => this.vitals.set(s))
         .catch(() => this.vitals.set(null));
+    const pollAll = () => {
+      void poll();
+      if (this.update()?.run?.state === 'running') void this.followInstall();
+    };
     void poll();
-    const timer = setInterval(() => void poll(), 5000);
+    const timer = setInterval(pollAll, 5000);
     inject(DestroyRef).onDestroy(() => clearInterval(timer));
+  }
+
+  /** What is installed, what is out, and the newest install run; null from an agent without the update verbs. */
+  protected readonly update = signal<Update | null>(null);
+  protected readonly notesOpen = signal(false);
+  protected readonly checking = signal(false);
+  protected readonly installing = signal(false);
+  /** The agent or the drive did not answer while an install runs: the package restarted them. */
+  protected readonly restarting = signal(false);
+
+  updateLine(u: Update): string {
+    const parts: string[] = [];
+    if (u.run?.state === 'done' && u.run.version === u.current && u.run.finishedAt) parts.push(`mk-nas ${u.current} installed ${ago(ms(u.run.finishedAt))}`);
+    if (u.error) parts.push(`the last check failed: ${u.error}`);
+    else if (!u.available && u.latest) parts.push('up to date');
+    parts.push(u.checkedAt ? `checked ${ago(ms(u.checkedAt))}` : 'not checked yet');
+    const line = parts.join(' · ');
+    return line.charAt(0).toUpperCase() + line.slice(1);
+  }
+
+  async check(): Promise<void> {
+    this.checking.set(true);
+    try {
+      this.update.set(await this.api.nas.checkUpdate());
+    } catch (e) {
+      this.toast.danger(errorMessage(e));
+    } finally {
+      this.checking.set(false);
+    }
+  }
+
+  /** Install the release on screen: the agent verifies its signature first and refuses anything else. */
+  async install(u: Update): Promise<void> {
+    const latest = u.latest;
+    if (!latest) return;
+    const driveToo = latest.drive !== u.drive;
+    const ok = await this.dialog.confirm({
+      title: `Install mk-nas ${latest.version}?`,
+      message:
+        'The box checks the release signature, backs up the settings when a backup is set up, and installs the package; the agent restarts. ' +
+        (driveToo
+          ? `The drive restarts on mk-drive ${latest.drive}, so this page is gone for a minute and comes back by itself.`
+          : 'The drive keeps running.') +
+        ' Scrubs, copies and shares carry on.',
+      confirmText: 'Install',
+    });
+    if (!ok) return;
+    this.installing.set(true);
+    try {
+      this.update.set(await this.api.nas.installUpdate(latest.version));
+    } catch (e) {
+      this.toast.danger(errorMessage(e));
+    } finally {
+      this.installing.set(false);
+    }
+  }
+
+  /** While an install runs: keep asking; a failed answer is the restart, the first answer after it the new agent. */
+  async followInstall(): Promise<void> {
+    const before = this.update();
+    try {
+      const u = await this.api.nas.update();
+      this.restarting.set(false);
+      this.update.set(u);
+      if (u.run?.state === 'done' && before?.run?.state === 'running') {
+        this.toast.success(`mk-nas ${u.current} is installed`);
+        await this.drive.ready();
+        await this.q.run();
+      }
+    } catch {
+      this.restarting.set(true);
+    }
   }
 
   /** Set once a reboot or shutdown was accepted: the buttons stay off, the page says what happens next. */
