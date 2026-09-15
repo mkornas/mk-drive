@@ -289,6 +289,9 @@ export function createAuth(cfg: Config, users: Users): Auth {
 /** Endpoints reachable without an identity (they handle it themselves). */
 const OPEN = new Set(['/api/health', '/api/meta', '/api/login', '/api/logout', '/api/setup']);
 
+/** NAS mode's read-only monitor route (GET only): its own token, checked and throttled by the route; a session or an app password never opens it. */
+export const NAS_MONITOR_PATH = '/api/nas/monitor';
+
 export function registerAuth(app: FastifyInstance, auth: Auth): void {
   app.decorateRequest('identity', undefined as unknown as Identity);
   app.decorateRequest('authReason', undefined);
@@ -310,6 +313,7 @@ export function registerAuth(app: FastifyInstance, auth: Auth): void {
         .header('WWW-Authenticate', 'Basic realm="mk-drive", charset="UTF-8"')
         .send(req.authReason ?? 'sign in with your email and an app password');
     }
+    if (path === NAS_MONITOR_PATH && req.method === 'GET') return;
     if (path.startsWith('/api/s/')) {
       // public share links carry their own checks; still attach an identity when there is one
       const id = await auth.identify(req).catch(() => null);

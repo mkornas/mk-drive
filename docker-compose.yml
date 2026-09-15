@@ -35,6 +35,8 @@ services:
       DRIVE_LOCATIONS: ${DRIVE_LOCATIONS:-}
       # NAS mode (a host running mk-nas): the agent's socket, mounted below; admins get the Storage section.
       DRIVE_NAS_SOCKET: ${DRIVE_NAS_SOCKET:-}
+      # NAS mode: a token (32+ characters) for a monitor to read GET /api/nas/monitor (health only), e.g. mk-dashboard.
+      DRIVE_NAS_MONITOR_TOKEN: ${DRIVE_NAS_MONITOR_TOKEN:-}
     volumes:
       - ./data/locations/Files:/locations/Files
       - ./data:/data

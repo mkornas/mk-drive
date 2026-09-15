@@ -158,6 +158,9 @@ export const config = {
 
   /** NAS mode: the mk-nas agent's Unix socket mounted into the container. Empty = no Storage section, nothing else changes. */
   nasSocket: env('DRIVE_NAS_SOCKET', ''),
+
+  /** NAS mode: a bearer token (32+ characters) for a monitor to read GET /api/nas/monitor — health and version, nothing else. Empty = no such route. */
+  nasMonitorToken: env('DRIVE_NAS_MONITOR_TOKEN', ''),
 };
 
 if (!config.dbFile) config.dbFile = resolve(config.dataDir, 'mk-drive.db');

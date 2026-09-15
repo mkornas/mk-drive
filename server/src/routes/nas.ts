@@ -5,8 +5,10 @@
  * validates every value and refuses keys it does not know — after being
  * narrowed to the keys the verb takes, so nothing else rides along.
  */
+import { createHash, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { badRequest, forbidden } from '../errors.ts';
+import { clientIp, NAS_MONITOR_PATH, type LoginThrottle } from '../auth.ts';
+import { HttpError, badRequest, forbidden } from '../errors.ts';
 import { smbUserNames } from '../nas.ts';
 import { PASSWORD_MIN } from '../users.ts';
 import type { Locations } from '../locations.ts';
@@ -404,5 +406,36 @@ export function registerNasRoutes(app: FastifyInstance, nas: NasClient, location
     const p = await nas.call('policy.set', args);
     audit(req, 'nas.policy.set', args);
     return p;
+  });
+}
+
+/**
+ * GET /api/nas/monitor for a monitoring tool (mk-dashboard, a script): the health verb and who answers, for
+ * `Authorization: Bearer <DRIVE_NAS_MONITOR_TOKEN>`. Read-only by construction — the route calls `health` and
+ * `version`, nothing else — and the token opens nothing else in the drive. A wrong token counts against the address
+ * like a wrong password.
+ */
+export function registerNasMonitorRoute(app: FastifyInstance, nas: NasClient, token: string, throttle: LoginThrottle, trustedProxies: string[]): void {
+  // both sides hashed first: equal-length buffers for timingSafeEqual, whatever was sent
+  const digest = (s: string) => createHash('sha256').update(s).digest();
+  const expected = digest(token);
+  app.get(NAS_MONITOR_PATH, async (req, reply): Promise<{ health: Health; agent: string; hostname: string }> => {
+    const h = req.headers.authorization;
+    const given = typeof h === 'string' && /^Bearer /i.test(h) ? h.slice(7).trim() : '';
+    if (!given) throw new HttpError(401, 'send the monitor token');
+    // no await between the check and the verdict, so a concurrent burst cannot slip past it
+    const key = `monitor:${clientIp(req, trustedProxies)}`;
+    const wait = throttle.retryAfter(key);
+    if (wait > 0) {
+      reply.header('Retry-After', String(Math.ceil(wait / 1000)));
+      throw new HttpError(429, `too many attempts, wait ${Math.ceil(wait / 1000)} s`);
+    }
+    if (!timingSafeEqual(digest(given), expected)) {
+      throttle.failed(key);
+      throw new HttpError(401, 'send the monitor token');
+    }
+    throttle.succeeded(key);
+    const [health, version] = await Promise.all([nas.call('health'), nas.call('version')]);
+    return { health, agent: version.agent, hostname: version.hostname };
   });
 }

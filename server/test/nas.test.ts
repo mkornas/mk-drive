@@ -14,6 +14,7 @@ import type { Request } from '../../shared/nas.ts';
 import { smbUserNames } from '../src/nas.ts';
 
 const PW = 'correct horse battery';
+const MONITOR = 'monitor-token-0123456789abcdefghij';
 let base: string;
 let app: FastifyInstance;
 let plain: FastifyInstance;
@@ -46,7 +47,8 @@ function fakeAgent(path: string): Promise<Server> {
         buf = buf.slice(nl + 1);
         seen.push(req);
         const reply = (body: unknown) => sock.write(JSON.stringify({ id: req.id, ...(body as object) }) + '\n');
-        if (req.verb === 'pools')
+        if (req.verb === 'health') reply({ ok: true, result: { ok: true, pools: [{ name: 'tank', health: 'ONLINE', capacity: 10, ok: true }], disks: [], problems: [], events: [] } });
+        else if (req.verb === 'pools')
           reply({ ok: true, result: [{ name: 'tank', health: 'ONLINE', size: 100, allocated: 10, free: 90, capacity: 10, fragmentation: 0 }] });
         else if (req.verb === 'pool' && req.args?.pool === 'tank') reply({ ok: true, result: { name: 'tank', health: 'ONLINE', vdevs: [] } });
         else if (req.verb === 'pool') reply({ ok: false, error: { code: 'not-found', message: `cannot open '${String(req.args?.pool)}': no such pool` } });
@@ -232,7 +234,7 @@ before(async () => {
   await mkdir(join(base, 'locations', 'Files'), { recursive: true });
   const sock = join(base, 'mk-nas.sock');
   agent = await fakeAgent(sock);
-  const cfg = (nasSocket: string): Config => ({
+  const cfg = (nasSocket: string, nasMonitorToken = MONITOR): Config => ({
     ...config,
     staticDir: '',
     dbFile: ':memory:',
@@ -242,6 +244,7 @@ before(async () => {
     locationsDir: join(base, 'locations'),
     accessAud: '',
     nasSocket,
+    nasMonitorToken,
   });
   app = await createApp(cfg(sock), { logger: false });
   plain = await createApp(cfg(''), { logger: false });
@@ -275,6 +278,37 @@ test('admins only, and only with a browser session', async () => {
   assert.equal((await app.inject({ url: '/api/nas/pools', headers: { cookie: member } })).statusCode, 403);
   const token = (await app.inject(json('POST', '/api/app-passwords', { name: 'cli' }, admin))).json<{ secret: string }>();
   assert.equal((await app.inject({ url: '/api/nas/pools', headers: { authorization: `Bearer ${token.secret}` } })).statusCode, 403);
+});
+
+test('the monitor route: health and version for the monitor token, and nothing opens it but that token', async () => {
+  seen.length = 0;
+  const ok = await app.inject({ url: '/api/nas/monitor', headers: { authorization: `Bearer ${MONITOR}` } });
+  assert.equal(ok.statusCode, 200);
+  assert.deepEqual(ok.json(), {
+    health: { ok: true, pools: [{ name: 'tank', health: 'ONLINE', capacity: 10, ok: true }], disks: [], problems: [], events: [] },
+    agent: agentVersion,
+    hostname: 'nas',
+  });
+  assert.deepEqual(seen.map((r) => r.verb).sort(), ['health', 'version']);
+  assert.equal(ok.headers['cache-control'], 'no-store');
+
+  assert.equal((await app.inject({ url: '/api/nas/monitor' })).statusCode, 401);
+  assert.equal((await app.inject({ url: '/api/nas/monitor', headers: { cookie: admin } })).statusCode, 401, 'not an admin session');
+  // from an address of its own: a POST goes through the usual sign-in, where the token is a wrong app password
+  assert.equal((await app.inject({ method: 'POST', url: '/api/nas/monitor', remoteAddress: '198.51.100.7', headers: { authorization: `Bearer ${MONITOR}` } })).statusCode, 401, 'GET only');
+  const token = (await app.inject(json('POST', '/api/app-passwords', { name: 'monitor' }, admin))).json<{ secret: string }>();
+  assert.equal((await app.inject({ url: '/api/nas/monitor', headers: { authorization: `Bearer ${token.secret}` } })).statusCode, 401, 'not an app password');
+  const wrong = await app.inject({ url: '/api/nas/monitor', headers: { authorization: `Bearer ${MONITOR}x` } });
+  assert.equal(wrong.statusCode, 429, 'a wrong token is throttled like a password');
+  assert.ok(Number(wrong.headers['retry-after']) >= 1);
+
+  assert.equal((await plain.inject({ url: '/api/nas/monitor', headers: { authorization: `Bearer ${MONITOR}` } })).statusCode, 404, 'no socket, no route');
+  const short = await createApp({ ...config, staticDir: '', dbFile: ':memory:', locations: [], locationsDir: join(base, 'locations'), accessAud: '', nasSocket: join(base, 'mk-nas.sock'), nasMonitorToken: 'short' }, { logger: false });
+  try {
+    assert.equal((await short.inject({ url: '/api/nas/monitor', headers: { authorization: 'Bearer short' } })).statusCode, 404, 'a short token keeps it off');
+  } finally {
+    await short.close();
+  }
 });
 
 test('a verb goes over the socket and its result comes back', async () => {
