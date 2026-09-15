@@ -233,7 +233,7 @@ the drive notices the snapshot directory on its own.
 | `DRIVE_ACCESS_TEAM` / `DRIVE_ACCESS_AUD` | — | Cloudflare Access team and application audience |
 | `DRIVE_OIDC_ISSUER` / `DRIVE_OIDC_CLIENT_ID` / `DRIVE_OIDC_CLIENT_SECRET` | — | OpenID Connect single sign-on (all three enable it, and take over from Settings → Sign-in) |
 | `DRIVE_OIDC_NAME` | `Single sign-on` | What the sign-in button says |
-| `DRIVE_COOKIE_SECRET` | random per start | Signs the ten-minute login cookie used during SSO |
+| `DRIVE_COOKIE_SECRET` | random per start | Signs the ten-minute login cookie used during SSO; at least 16 characters (32 random bytes), a shorter one stops the start |
 | `DRIVE_PASSWORD_LOGIN` | `on` | Where the password form is offered: `on`, `lan` (private addresses only), `off` |
 | `DRIVE_TRUSTED_PROXIES` | `127.0.0.0/8,::1/128` | Proxies whose `X-Forwarded-For` and `CF-Connecting-IP` are believed (throttling, audit). With a Cloudflare Tunnel, include where `cloudflared` connects from — loopback on the host, or the gateway of the drive's Docker network (`docker network inspect`) when `cloudflared` reaches a published port — else every visitor through the tunnel shares one address |
 | `DRIVE_HIDE` | `.zfs,.mk-drive,.trash` | Names never shown anywhere |

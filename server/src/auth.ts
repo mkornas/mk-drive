@@ -197,7 +197,12 @@ export function cookie(req: FastifyRequest, name: string): string | undefined {
   if (!raw) return undefined;
   for (const part of raw.split(';')) {
     const [k, ...v] = part.trim().split('=');
-    if (k === name) return decodeURIComponent(v.join('='));
+    if (k !== name) continue;
+    try {
+      return decodeURIComponent(v.join('='));
+    } catch {
+      return undefined; // a malformed escape reads as no cookie, not as a 500 on every request
+    }
   }
   return undefined;
 }

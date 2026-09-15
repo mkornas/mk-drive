@@ -205,6 +205,8 @@ export function registerSso(app: FastifyInstance, cfg: Config, users: Users, sso
     return toLogin(reply, `sign-in with ${conf.name} is unavailable: ${conf.issuer} could not be reached — try again in a moment`);
   });
 
+  if (cfg.cookieSecret && cfg.cookieSecret.length < 16)
+    throw new Error('DRIVE_COOKIE_SECRET is shorter than 16 characters — set 32 random bytes (openssl rand -base64 32), or unset it for a random one per start');
   registerOidcRoutes<FastifyRequest, FastifyReply>(app, {
     // SsoProvider offers everything the routes call; Oidc's private fields make its type nominal, hence the cast
     oidc: sso as unknown as Oidc,

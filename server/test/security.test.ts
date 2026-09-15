@@ -212,3 +212,28 @@ test('setup code: asked for when DRIVE_SETUP_TOKEN is set, wrong ones refused an
     await open.close();
   }
 });
+
+test('a cookie with a malformed percent-escape reads as absent, not as a 500', async () => {
+  const bad = '%E0%A4%A';
+  for (const cookie of [`mkdrive_session=${bad}`, `__Host-mkdrive_session=${bad}`, `CF_Authorization=${bad}`]) {
+    const res = await app.inject({ url: '/api/me', headers: { cookie, 'x-forwarded-proto': 'https' } });
+    assert.equal(res.statusCode, 401, cookie);
+  }
+  // behind Cloudflare Access too, where the CF_Authorization cookie is read as a token
+  const access = await createApp(cfgWith({ accessTeam: 'example', accessAud: 'aud' }), { logger: false });
+  try {
+    const res = await access.inject({ url: '/api/me', headers: { cookie: `CF_Authorization=${bad}` } });
+    assert.equal(res.statusCode, 401);
+    const session = cookieOf(await login(access));
+    const ok = await access.inject({ url: '/api/me', headers: { cookie: `${session}; CF_Authorization=${bad}` } });
+    assert.equal(ok.statusCode, 200, 'a good session next to a malformed cookie still works');
+  } finally {
+    await access.close();
+  }
+});
+
+test('a DRIVE_COOKIE_SECRET under 16 characters stops the start with a message naming it', async () => {
+  await assert.rejects(createApp(cfgWith({ cookieSecret: 'short-secret' }), { logger: false }), /DRIVE_COOKIE_SECRET/);
+  const ok = await createApp(cfgWith({ cookieSecret: 'x'.repeat(16) }), { logger: false });
+  await ok.close();
+});
