@@ -9,6 +9,8 @@ One card per line, ranked top-down inside each column. `#p0`..`#p3` = priority, 
 
 ## Now
 
+- [ ] **SMB access per share (drive)** the share dialog's who-can-open list prefilled from the location's grants, existing shares become admins-only, the Shares page says who can connect per share #p1 #shares #security
+
 ## Next
 
 - [ ] *Datasets page polish** tree indentation by hierarchy, used bar relative to quota, 'Open in the drive' link for location datasets, snapshot count per dataset, delete dataset with typed name once the agent has dataset.destroy #p2 #nas [[datasets-page-polish-tree-indentation-by-hierarchy-used-bar]]

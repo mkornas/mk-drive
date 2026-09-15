@@ -1,10 +1,11 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal, type WritableSignal } from '@angular/core';
 import { MK_OVERLAY_DATA, MkOverlayRef } from '@mk-kit/ui/core';
 import { MkButton } from '@mk-kit/ui/button';
 import { MkCheckbox } from '@mk-kit/ui/checkbox';
 import { MkDialog } from '@mk-kit/ui/feedback';
-import { MkFormField, MkInput } from '@mk-kit/ui/forms';
-import type { Share } from '../../../../../shared/nas';
+import { MkFormField, MkInput, MkSelect, type MkSelectOption } from '@mk-kit/ui/forms';
+import type { Share, SmbAccess } from '../../../../../shared/nas';
+import type { ShareAccessAccount } from '../../../../../shared/types';
 import { ApiService, errorMessage } from '../../core/api.service';
 
 export interface ShareDialogData {
@@ -13,11 +14,19 @@ export interface ShareDialogData {
   host: string;
 }
 
+type Level = 'none' | SmbAccess['level'];
+
+const LEVELS: MkSelectOption[] = [
+  { label: 'No access', value: 'none' },
+  { label: 'Read', value: 'read' },
+  { label: 'Read and write', value: 'write' },
+];
+
 /** Hand a dataset out over the network, or take it back: SMB for Finder and Explorer (and Time Machine), NFS for other machines. */
 @Component({
   selector: 'app-share-dialog',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MkDialog, MkButton, MkCheckbox, MkFormField, MkInput],
+  imports: [MkDialog, MkButton, MkCheckbox, MkFormField, MkInput, MkSelect],
   template: `
     <mk-dialog [dialogTitle]="'Share ' + data.dataset">
       <form class="form" id="share-form" (submit)="save($event)">
@@ -31,15 +40,30 @@ export interface ShareDialogData {
               <p class="how">
                 Connect to <code>smb://{{ data.host }}/{{ name }}</code>
               </p>
-              @if (canConnect(); as who) {
-                @if (who.length === 0) {
-                  <p class="warn">
-                    Nobody can connect over SMB yet — set an SMB password under Settings → Account → Network access. A login on the box itself is not an SMB
-                    account.
-                  </p>
-                } @else {
-                  <p class="how">Who can connect: {{ who.join(', ') }}</p>
+              <h3>Who can open it</h3>
+              @if (accessError()) {
+                <p class="warn">Could not load the accounts ({{ accessError() }}). Saving keeps the list the share has.</p>
+              } @else if (rows(); as rows) {
+                <ul class="people">
+                  @for (row of rows; track row.account.userId) {
+                    <li class="person">
+                      <div class="person__main">
+                        <div>
+                          {{ row.account.name }} <span class="muted small">{{ row.account.email }}</span>
+                        </div>
+                        @if (!row.account.hasPassword) {
+                          <div class="muted small">no SMB password yet — they set one under Settings → Account</div>
+                        }
+                      </div>
+                      <mk-select class="person__level" [options]="levels" [(value)]="row.level" size="sm" [ariaLabel]="'SMB access for ' + row.account.name" />
+                    </li>
+                  }
+                </ul>
+                @if (nobody()) {
+                  <p class="warn">Nobody is chosen, so the share will not be offered over SMB.</p>
                 }
+              } @else {
+                <p class="how">Loading the accounts…</p>
               }
             </div>
           }
@@ -67,7 +91,9 @@ export interface ShareDialogData {
         }
         <span class="spacer"></span>
         <button mkButton variant="ghost" type="button" (click)="ref.close()">Cancel</button>
-        <button mkButton type="submit" form="share-form" [loading]="busy()" [disabled]="!smb() && !nfs()">{{ data.share ? 'Save' : 'Share' }}</button>
+        <button mkButton type="submit" form="share-form" [loading]="busy()" [disabled]="!valid() || loadingAccess()">
+          {{ data.share ? 'Save' : 'Share' }}
+        </button>
       </div>
     </mk-dialog>
   `,
@@ -85,6 +111,34 @@ export interface ShareDialogData {
         margin-left: calc(var(--mk-space-6) + 2px);
         display: grid;
         gap: var(--mk-space-2);
+      }
+      h3 {
+        font-size: var(--mk-font-size-sm);
+        margin: var(--mk-space-2) 0 0;
+      }
+      .people {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+      }
+      .person {
+        display: flex;
+        align-items: center;
+        gap: var(--mk-space-3);
+        padding: var(--mk-space-2) 0;
+        border-top: 1px solid var(--mk-border-subtle);
+      }
+      .person__main {
+        flex: 1;
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+      .person__level {
+        flex: 0 0 11rem;
+      }
+      .small {
+        font-size: var(--mk-font-size-xs);
       }
       .how {
         margin: 0;
@@ -127,14 +181,27 @@ export class ShareDialog {
   protected readonly busy = signal(false);
   protected readonly error = signal('');
   protected readonly valid = computed(() => this.smb() || this.nfs());
-  /** Users with an SMB password; null until loaded (or when the list could not be read — then the dialog says nothing). */
-  protected readonly canConnect = signal<string[] | null>(null);
+  protected readonly levels = LEVELS;
+  /** One row per drive account; null until loaded. */
+  protected readonly rows = signal<{ account: ShareAccessAccount; level: WritableSignal<Level> }[] | null>(null);
+  protected readonly accessError = signal('');
+  protected readonly loadingAccess = computed(() => this.smb() && this.rows() === null && !this.accessError());
+  protected readonly nobody = computed(() => (this.rows() ?? []).every((r) => r.level() === 'none'));
 
   constructor() {
+    // a share with a list shows it as saved; one without (new, or from an agent before lists) starts from the drive's grants
+    const saved = this.data.share?.smbAccess;
     this.api.nas
-      .users()
-      .then((users) => this.canConnect.set(users.filter((u) => u.hasPassword).map((u) => u.name)))
-      .catch(() => undefined);
+      .shareAccess(this.data.dataset)
+      .then((r) =>
+        this.rows.set(
+          r.accounts.map((account) => ({
+            account,
+            level: signal<Level>(saved ? (saved.find((a) => a.user === account.smbName)?.level ?? 'none') : (account.suggested ?? 'none')),
+          })),
+        ),
+      )
+      .catch((e) => this.accessError.set(errorMessage(e)));
   }
 
   async save(ev: Event): Promise<void> {
@@ -147,12 +214,17 @@ export class ShareDialog {
         .split(',')
         .map((c) => c.trim())
         .filter(Boolean);
+      const rows = this.rows();
       const s = await this.api.nas.setShare({
         dataset: this.data.dataset,
         smb: this.smb(),
         timeMachine: this.smb() && this.timeMachine(),
         nfs: this.nfs(),
         nfsClients,
+        // exactly what the list shows; left out when SMB is off or the accounts did not load, which keeps the share's list
+        ...(this.smb() && rows
+          ? { smbAccess: rows.filter((r) => r.level() !== 'none').map((r) => ({ user: r.account.smbName, level: r.level() as SmbAccess['level'] })) }
+          : {}),
       });
       this.ref.close(s);
     } catch (e) {

@@ -3,7 +3,7 @@
  * every directory directly under `locationsDir`, mode from writability.
  */
 import { access, readdir, constants } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import type { Config, LocationConfig } from './config.ts';
 import { LocalProvider } from './storage/local.ts';
 import type { StorageProvider } from './storage/provider.ts';
@@ -53,6 +53,18 @@ export class Locations {
       added.push(l.name);
     }
     return added;
+  }
+
+  /**
+   * NAS mode: the location a dataset mounted at `mountpoint` is, or null. The agent mounts a location dataset at
+   * `<its locations dir>/<last name>`, which the container sees as `<locationsDir>/<last name>`; the host's path is not
+   * known here, so the last name is matched against the locations found under our locations dir.
+   */
+  atMountpoint(mountpoint: string | null): string | null {
+    if (!mountpoint) return null;
+    const name = basename(mountpoint);
+    const m = this.byName.get(name);
+    return m && m.cfg.source === 'mount' && m.cfg.path === join(this.config.locationsDir, name) ? name : null;
   }
 
   /** A connector joins the mounts (same rules from here on). */

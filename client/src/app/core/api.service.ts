@@ -61,6 +61,7 @@ import type {
   SearchResult,
   Session,
   Share,
+  ShareAccess,
   ShareInfo,
   ShareMode,
   SignOutResult,
@@ -208,6 +209,8 @@ export class ApiService {
     // share
     shares: (): Promise<NasShare[]> => this.get('/api/nas/shares'),
     setShare: (args: ShareSetArgs): Promise<NasShare> => firstValueFrom(this.http.put<NasShare>('/api/nas/shares', args)),
+    /** The accounts for a share's SMB list, with where each starts; without a dataset the accounts only. */
+    shareAccess: (dataset?: string): Promise<ShareAccess> => this.get('/api/nas/shares/access', dataset ? new HttpParams().set('dataset', dataset) : undefined),
     removeShare: (dataset: string): Promise<{ removed: string }> => this.post('/api/nas/shares/remove', { dataset }),
     users: (): Promise<NasSmbUser[]> => this.get('/api/nas/users'),
     // survive

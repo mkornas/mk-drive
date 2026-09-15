@@ -8,9 +8,9 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { clientIp, NAS_MONITOR_PATH, type LoginThrottle } from '../auth.ts';
-import { HttpError, badRequest, forbidden } from '../errors.ts';
+import { HttpError, badRequest, forbidden, notFound } from '../errors.ts';
 import { smbUserNames } from '../nas.ts';
-import { PASSWORD_MIN } from '../users.ts';
+import { grantLevel, PASSWORD_MIN } from '../users.ts';
 import type { Locations } from '../locations.ts';
 import type { NasClient } from '../nas.ts';
 import type { Users } from '../users.ts';
@@ -42,6 +42,7 @@ import type {
   Share,
   ShareSetArgs,
   Smart,
+  SmbAccess,
   SmbUser,
   Snapshot,
   System,
@@ -50,6 +51,7 @@ import type {
   Version,
   ZfsEvent,
 } from '../../../shared/nas.ts';
+import type { ShareAccess } from '../../../shared/types.ts';
 import { sessionOnly } from './app-passwords.ts';
 
 function pick<T extends object>(body: unknown, keys: (keyof T)[]): T {
@@ -57,6 +59,33 @@ function pick<T extends object>(body: unknown, keys: (keyof T)[]): T {
   const out: Record<string, unknown> = {};
   for (const k of keys) if ((body as Record<string, unknown>)[k as string] !== undefined) out[k as string] = (body as Record<string, unknown>)[k as string];
   return out as T;
+}
+
+/**
+ * A share from before per-share lists (`smbAccess` null) that is on over SMB becomes admins-only: every admin account's
+ * SMB name with write, password set or not. Returns the shares as they are after. An agent older than lists sends no
+ * `smbAccess` at all and is left alone.
+ */
+export async function migrateShareAccess(nas: NasClient, users: Users, who: { userId: number | null; email: string }): Promise<Share[]> {
+  const shares = await nas.call('shares');
+  if (!shares.some((s) => s.smb && s.smbAccess === null)) return shares;
+  const names = smbUserNames(users.accounts());
+  const admins: SmbAccess[] = users
+    .list()
+    // a disabled account keeps nothing: Samba does not know the drive disabled it
+    .filter((u) => u.role === 'admin' && !u.disabled)
+    .map((u) => ({ user: names.get(u.id)!, level: 'write' }));
+  const out: Share[] = [];
+  // one at a time: every share.set rewrites smb.conf and reloads Samba
+  for (const s of shares) {
+    if (!s.smb || s.smbAccess !== null) {
+      out.push(s);
+      continue;
+    }
+    out.push(await nas.call('share.set', { dataset: s.dataset, smbAccess: admins }));
+    users.audit({ ...who, action: 'nas.share.access', detail: { dataset: s.dataset, migrated: true, users: admins.map((a) => a.user) } });
+  }
+  return out;
 }
 
 export function registerNasRoutes(app: FastifyInstance, nas: NasClient, locations: Locations, users: Users): void {
@@ -272,14 +301,52 @@ export function registerNasRoutes(app: FastifyInstance, nas: NasClient, location
   // ---- share ----
   app.get('/api/nas/shares', async (req): Promise<Share[]> => {
     admin(req);
-    return nas.call('shares');
+    return migrateShareAccess(nas, users, { userId: req.identity.id, email: req.identity.email });
   });
   app.put('/api/nas/shares', async (req): Promise<Share> => {
     admin(req);
-    const args = pick<ShareSetArgs>(req.body, ['dataset', 'smb', 'timeMachine', 'nfs', 'nfsClients']);
-    const s = await nas.call('share.set', args);
+    const args = pick<ShareSetArgs>(req.body, ['dataset', 'smb', 'timeMachine', 'nfs', 'nfsClients', 'smbAccess']);
+    let s: Share;
+    try {
+      s = await nas.call('share.set', args);
+    } catch (e) {
+      // an agent older than per-share lists refuses the key: share without it (every SMB user may open it there, as before)
+      if (args.smbAccess === undefined || (e as { nas?: { message?: string } }).nas?.message !== 'unexpected argument: smbAccess') throw e;
+      s = await nas.call('share.set', { ...args, smbAccess: undefined });
+    }
     audit(req, 'nas.share.set', args);
     return s;
+  });
+  /** For the share dialog: every drive account, its SMB name and password, and where its choice starts. `dataset` omitted: the accounts only. */
+  app.get<{ Querystring: { dataset?: string } }>('/api/nas/shares/access', async (req): Promise<ShareAccess> => {
+    admin(req);
+    const dataset = req.query.dataset;
+    const [smbUsers, datasets] = await Promise.all([nas.call('users'), dataset ? nas.call('datasets', { pool: dataset.split('/')[0] }) : []]);
+    let location: string | null = null;
+    if (dataset) {
+      const ds = datasets.find((d) => d.name === dataset);
+      if (!ds) throw notFound(`no dataset "${dataset}"`);
+      location = locations.atMountpoint(ds.mountpoint);
+    }
+    const names = smbUserNames(users.accounts());
+    return {
+      location,
+      accounts: users.list().map((u) => {
+        const smbName = names.get(u.id)!;
+        const level = location ? grantLevel(u, location) : 'none';
+        const grant = level === 'none' ? null : level;
+        return {
+          userId: u.id,
+          email: u.email,
+          name: u.name,
+          role: u.role,
+          smbName,
+          hasPassword: smbUsers.some((x) => x.name === smbName && x.hasPassword),
+          grant,
+          suggested: u.disabled ? null : location ? grant : u.role === 'admin' ? 'write' : null,
+        };
+      }),
+    };
   });
   app.post('/api/nas/shares/remove', async (req): Promise<{ removed: string }> => {
     admin(req);

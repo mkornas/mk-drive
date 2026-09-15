@@ -2,21 +2,22 @@ import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/c
 import { RouterLink } from '@angular/router';
 import { MkButton } from '@mk-kit/ui/button';
 import { MkTag } from '@mk-kit/ui/data';
-import { MkAlert, MkDialogService, MkToastService } from '@mk-kit/ui/feedback';
+import { MkDialogService, MkToastService } from '@mk-kit/ui/feedback';
 import { MkIcon } from '@mk-kit/ui/icon';
 import { MkEmptyState } from '@mk-kit/ui/status';
 import type { Share, SmbUser, Version } from '../../../../../shared/nas';
+import type { ShareAccessAccount } from '../../../../../shared/types';
 import { ApiService } from '../../core/api.service';
 import { lanName } from '../../core/format';
 import { StorageShell } from './shell';
 import { loader } from './load';
 import { ShareDialog, type ShareDialogData } from './share-dialog';
 
-/** What is handed out over the network, how to connect, and who has an SMB password. */
+/** What is handed out over the network, how to connect, who may open each SMB share, and who has an SMB password. */
 @Component({
   selector: 'app-storage-shares',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, StorageShell, MkButton, MkTag, MkIcon, MkEmptyState, MkAlert],
+  imports: [RouterLink, StorageShell, MkButton, MkTag, MkIcon, MkEmptyState],
   template: `
     <app-storage
       heading="Shares"
@@ -29,12 +30,6 @@ import { ShareDialog, type ShareDialogData } from './share-dialog';
       @if (q.data(); as d) {
         @if (d.shares.length === 0) {
           <mk-empty-state icon="globe" title="Nothing is shared yet" description="Open the Datasets page and choose Share on a dataset." />
-        }
-        @if (smbShared() && canConnect().length === 0) {
-          <mk-alert tone="warning" title="Nobody can connect over SMB yet" class="alert">
-            Set an SMB password under <a routerLink="/settings/account">Settings → Account → Network access</a>. Only drive accounts with an SMB password can
-            open these shares; a login on the box itself (like the one made by the installer) is not one.
-          </mk-alert>
         }
         <ul class="list">
           @for (s of d.shares; track s.dataset) {
@@ -57,6 +52,16 @@ import { ShareDialog, type ShareDialogData } from './share-dialog';
                       <mk-tag size="sm" tone="neutral">Time Machine</mk-tag>
                     }
                   </div>
+                  @if (!s.smbAccess) {
+                    <p class="muted small who">Everyone with an SMB password can open it</p>
+                  } @else if (s.smbAccess.length === 0) {
+                    <p class="warn">Nobody may open it, so it is not offered over SMB.</p>
+                  } @else {
+                    <p class="muted small who">Who can open it: {{ who(s) }}</p>
+                    @if (noPassword(s)) {
+                      <p class="warn">Nobody on this share has an SMB password yet</p>
+                    }
+                  }
                 }
                 @if (s.nfs) {
                   <div class="way">
@@ -78,8 +83,9 @@ import { ShareDialog, type ShareDialogData } from './share-dialog';
 
         <h2>Who can connect over SMB</h2>
         <p class="muted">
-          Everyone with a drive account may set an SMB password on their <a routerLink="/settings/account">account page</a>; that is what Finder or Explorer
-          asks for. Whoever has one may open every SMB share. Logins on the box itself are not SMB accounts.
+          Each SMB share has its own list of who can open it: choose Change on a share. People set their own SMB password on their
+          <a routerLink="/settings/account">account page</a>; that is what Finder or Explorer asks for, and without one a person on a list cannot sign in.
+          Logins on the box itself are not SMB accounts.
         </p>
         @if (d.users.length === 0) {
           <p class="muted">Nobody yet — no one has set an SMB password.</p>
@@ -145,9 +151,9 @@ import { ShareDialog, type ShareDialogData } from './share-dialog';
         margin: var(--mk-space-2) 0 0;
         font-size: var(--mk-font-size-sm);
       }
-      .alert {
-        display: block;
-        margin-bottom: var(--mk-space-4);
+      .who,
+      .ways .warn {
+        margin: 0;
       }
       h2 {
         font-size: var(--mk-font-size-lg);
@@ -174,14 +180,29 @@ export class StorageSharesPage {
   protected readonly lan = lanName;
   private readonly dialog = inject(MkDialogService);
   private readonly toast = inject(MkToastService);
-  protected readonly q = loader<{ shares: Share[]; users: SmbUser[]; version: Version }>(async () => {
-    const [shares, users, version] = await Promise.all([this.api.nas.shares(), this.api.nas.users(), this.api.nas.version()]);
-    return { shares, users, version };
+  protected readonly q = loader<{ shares: Share[]; users: SmbUser[]; version: Version; accounts: ShareAccessAccount[] }>(async () => {
+    const [shares, users, version, access] = await Promise.all([
+      this.api.nas.shares(),
+      this.api.nas.users(),
+      this.api.nas.version(),
+      // only for the names: without it the lists show SMB names
+      this.api.nas.shareAccess().catch(() => null),
+    ]);
+    return { shares, users, version, accounts: access?.accounts ?? [] };
   });
 
-  /** Names that can sign in over SMB: a user without a password is in the database but Samba lets nobody in on it. */
-  protected readonly canConnect = computed(() => (this.q.data()?.users ?? []).filter((u) => u.hasPassword).map((u) => u.name));
-  protected readonly smbShared = computed(() => (this.q.data()?.shares ?? []).some((s) => s.smb));
+  /** SMB name → the account's name, where an account has it. */
+  private readonly names = computed(() => new Map((this.q.data()?.accounts ?? []).map((a) => [a.smbName, a.name])));
+
+  protected who(s: Share): string {
+    return (s.smbAccess ?? []).map((a) => `${this.names().get(a.user) ?? a.user} (${a.level === 'write' ? 'read and write' : 'read'})`).join(', ');
+  }
+
+  /** A user without a password is in Samba's database but cannot sign in. */
+  protected noPassword(s: Share): boolean {
+    const set = new Set((this.q.data()?.users ?? []).filter((u) => u.hasPassword).map((u) => u.name));
+    return !(s.smbAccess ?? []).some((a) => set.has(a.user));
+  }
 
   constructor() {
     void this.q.run();

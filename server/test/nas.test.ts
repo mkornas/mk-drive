@@ -9,8 +9,8 @@ import { join } from 'node:path';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { config, type Config } from '../src/config.ts';
 import { createApp } from '../src/app.ts';
-import type { Meta } from '../../shared/types.ts';
-import type { Request } from '../../shared/nas.ts';
+import type { Meta, ShareAccess } from '../../shared/types.ts';
+import type { Request, Share } from '../../shared/nas.ts';
 import { smbUserNames } from '../src/nas.ts';
 
 const PW = 'correct horse battery';
@@ -23,6 +23,9 @@ let admin = '';
 let member = '';
 const seen: Request[] = [];
 let smbUsers: { name: string; hasPassword: boolean; createdAt: string }[] = [];
+const shares = new Map<string, Share>();
+/** An agent from before per-share SMB lists: refuses the key. */
+let olderAgent = false;
 let agentVersion = '0.2.0';
 let agentContract = 2;
 
@@ -55,28 +58,40 @@ function fakeAgent(path: string): Promise<Server> {
         else if (req.verb === 'smart') reply({ ok: false, error: { code: 'bad-args', message: 'disk: not a disk id' } });
         else if (req.verb === 'smart.test')
           reply({ ok: true, result: { id: req.args?.disk, selfTest: { running: { kind: req.args?.kind, percentDone: 0 }, tests: [] } } });
-        else if (req.verb === 'datasets') reply({ ok: true, result: [] });
+        else if (req.verb === 'datasets')
+          reply({
+            ok: true,
+            result: [
+              { name: 'tank/Files', mountpoint: '/srv/locations/Files' },
+              { name: 'tank/other', mountpoint: '/tank/other' },
+            ],
+          });
         else if (req.verb === 'version')
           reply({ ok: true, result: { agent: agentVersion, contract: agentContract, node: 't', zfs: null, smartctl: null, hostname: 'nas' } });
         else if (req.verb === 'users') reply({ ok: true, result: smbUsers });
         else if (req.verb === 'user.smbPassword') {
           smbUsers = [{ name: String(req.args?.name), hasPassword: true, createdAt: 'now' }];
           reply({ ok: true, result: smbUsers[0] });
-        } else if (req.verb === 'share.set')
-          reply({
-            ok: true,
-            result: {
-              dataset: req.args?.dataset,
-              name: 'x',
-              mountpoint: '/srv/locations/x',
-              smb: !!req.args?.smb,
-              timeMachine: false,
-              nfs: !!req.args?.nfs,
-              nfsClients: [],
-              updatedAt: 'now',
-            },
-          });
-        else if (req.verb === 'shares') reply({ ok: true, result: [] });
+        } else if (req.verb === 'share.set' && olderAgent && req.args?.smbAccess !== undefined)
+          reply({ ok: false, error: { code: 'bad-args', message: 'unexpected argument: smbAccess' } });
+        else if (req.verb === 'share.set') {
+          // like the agent: keys left out keep what the share had; no list yet is null
+          const before = shares.get(String(req.args?.dataset));
+          const a = req.args as Partial<Share>;
+          const share: Share = {
+            dataset: String(a.dataset),
+            name: String(a.dataset).split('/').pop()!,
+            mountpoint: '/srv/locations/x',
+            smb: a.smb ?? before?.smb ?? false,
+            timeMachine: false,
+            nfs: a.nfs ?? before?.nfs ?? false,
+            nfsClients: [],
+            smbAccess: a.smbAccess ?? before?.smbAccess ?? null,
+            updatedAt: 'now',
+          };
+          shares.set(share.dataset, share);
+          reply({ ok: true, result: share });
+        } else if (req.verb === 'shares') reply({ ok: true, result: [...shares.values()] });
         else if (req.verb === 'update' || req.verb === 'update.check' || req.verb === 'update.install')
           reply(
             req.verb === 'update.install' && req.args?.version !== '0.6.0'
@@ -508,6 +523,161 @@ test("shares: the routes are admin-only and pass the verb's keys", async () => {
   assert.deepEqual(seen[0].args, { dataset: 'tank/x', smb: true, nfs: false });
   assert.equal((await app.inject(json('PUT', '/api/nas/shares', { dataset: 'tank/x', smb: true }, member))).statusCode, 403);
   assert.equal((await app.inject({ url: '/api/nas/shares', headers: { cookie: admin } })).statusCode, 200);
+});
+
+const share = (dataset: string, smb: boolean, smbAccess: Share['smbAccess']): Share => ({
+  dataset,
+  name: dataset.split('/').pop()!,
+  mountpoint: `/srv/locations/${dataset.split('/').pop()}`,
+  smb,
+  timeMachine: false,
+  nfs: !smb,
+  nfsClients: [],
+  smbAccess,
+  updatedAt: 'then',
+});
+
+test('shares from before lists become admins-only (read and write) once, audited; the rest are left alone', async () => {
+  shares.clear();
+  shares.set('tank/old', share('tank/old', true, null));
+  shares.set('tank/nfs', share('tank/nfs', false, null));
+  shares.set('tank/listed', share('tank/listed', true, [{ user: 'anna', level: 'read' }]));
+  seen.length = 0;
+  const res = await app.inject({ url: '/api/nas/shares', headers: { cookie: admin } });
+  assert.equal(res.statusCode, 200, res.body);
+  const list = res.json<Share[]>();
+  assert.deepEqual(list.find((s) => s.dataset === 'tank/old')?.smbAccess, [{ user: 'alex', level: 'write' }]);
+  assert.equal(list.find((s) => s.dataset === 'tank/nfs')?.smbAccess, null, 'not on SMB: no list needed');
+  assert.deepEqual(list.find((s) => s.dataset === 'tank/listed')?.smbAccess, [{ user: 'anna', level: 'read' }]);
+  const sets = seen.filter((r) => r.verb === 'share.set');
+  assert.deepEqual(
+    sets.map((r) => r.args),
+    [{ dataset: 'tank/old', smbAccess: [{ user: 'alex', level: 'write' }] }],
+    'only the dataset and the list',
+  );
+  const audit = (await app.inject({ url: '/api/audit?limit=20', headers: { cookie: admin } })).json<{ action: string; detail: string }[]>();
+  const entry = audit.filter((a) => a.action === 'nas.share.access' && JSON.parse(a.detail).dataset === 'tank/old');
+  assert.equal(entry.length, 1);
+  assert.deepEqual(JSON.parse(entry[0].detail), { dataset: 'tank/old', migrated: true, users: ['alex'] });
+
+  seen.length = 0;
+  await app.inject({ url: '/api/nas/shares', headers: { cookie: admin } });
+  assert.deepEqual(
+    seen.map((r) => r.verb),
+    ['shares'],
+    'once: the list is there now',
+  );
+});
+
+test('a list set on the share reaches the agent unchanged and is audited', async () => {
+  seen.length = 0;
+  const smbAccess = [
+    { user: 'anna', level: 'read' },
+    { user: 'alex', level: 'write' },
+  ];
+  const res = await app.inject(json('PUT', '/api/nas/shares', { dataset: 'tank/old', smb: true, nfs: false, smbAccess }, admin));
+  assert.equal(res.statusCode, 200, res.body);
+  assert.deepEqual(seen.at(-1)?.args, { dataset: 'tank/old', smb: true, nfs: false, smbAccess });
+  assert.deepEqual(res.json<Share>().smbAccess, smbAccess);
+  const audit = (await app.inject({ url: '/api/audit?limit=5', headers: { cookie: admin } })).json<{ action: string; detail: string }[]>();
+  assert.deepEqual(JSON.parse(audit.find((a) => a.action === 'nas.share.set')!.detail).smbAccess, smbAccess);
+
+  // an agent from before lists refuses the key: the share is set without it
+  olderAgent = true;
+  try {
+    seen.length = 0;
+    const older = await app.inject(json('PUT', '/api/nas/shares', { dataset: 'tank/older', smb: true, smbAccess }, admin));
+    assert.equal(older.statusCode, 200, older.body);
+    assert.deepEqual(
+      seen.map((r) => r.args),
+      [
+        { dataset: 'tank/older', smb: true, smbAccess },
+        { dataset: 'tank/older', smb: true },
+      ],
+    );
+  } finally {
+    olderAgent = false;
+    shares.delete('tank/older');
+  }
+});
+
+test('share access: the accounts with their SMB names and passwords, and where each starts; admins only', async () => {
+  for (const [email, grants] of [
+    ['reader@example.com', { Files: 'read' }],
+    ['writer@example.com', { Files: 'write' }],
+  ] as const)
+    await app.inject(json('POST', '/api/users', { email, name: email.split('@')[0], role: 'member', password: PW, grants }, admin));
+  smbUsers = [
+    { name: 'alex', hasPassword: true, createdAt: 'now' },
+    { name: 'reader', hasPassword: false, createdAt: 'now' },
+  ];
+  try {
+    const of = (r: ShareAccess, email: string) => r.accounts.find((a) => a.email === email)!;
+    const loc = await app.inject({ url: '/api/nas/shares/access?dataset=tank/Files', headers: { cookie: admin } });
+    assert.equal(loc.statusCode, 200, loc.body);
+    const l = loc.json<ShareAccess>();
+    assert.equal(l.location, 'Files', 'the dataset mounted under the locations dir');
+    assert.deepEqual(
+      ['alex@example.com', 'reader@example.com', 'writer@example.com', 'anna@example.com'].map((e) => {
+        const a = of(l, e);
+        return [a.smbName, a.hasPassword, a.grant, a.suggested];
+      }),
+      [
+        ['alex', true, 'write', 'write'],
+        ['reader', false, 'read', 'read'],
+        ['writer', false, 'write', 'write'],
+        ['anna', false, null, null],
+      ],
+    );
+    assert.equal(of(l, 'alex@example.com').role, 'admin');
+
+    const other = (await app.inject({ url: '/api/nas/shares/access?dataset=tank/other', headers: { cookie: admin } })).json<ShareAccess>();
+    assert.equal(other.location, null, 'not a location');
+    assert.deepEqual(
+      ['alex@example.com', 'reader@example.com', 'writer@example.com', 'anna@example.com'].map((e) => [of(other, e).grant, of(other, e).suggested]),
+      [
+        [null, 'write'],
+        [null, null],
+        [null, null],
+        [null, null],
+      ],
+    );
+    // a disabled account starts with nothing, whatever its grant: Samba does not know the drive disabled it
+    const gone = (await app.inject(json('POST', '/api/users', { email: 'gone@example.com', name: 'gone', role: 'member', password: PW, grants: { Files: 'write' } }, admin))).json<{ id: number }>();
+    await app.inject(json('PATCH', `/api/users/${gone.id}`, { disabled: true }, admin));
+    const off = of((await app.inject({ url: '/api/nas/shares/access?dataset=tank/Files', headers: { cookie: admin } })).json<ShareAccess>(), 'gone@example.com');
+    assert.deepEqual([off.grant, off.suggested], ['write', null]);
+    assert.equal((await app.inject({ url: '/api/nas/shares/access?dataset=tank/nope', headers: { cookie: admin } })).statusCode, 404);
+    assert.equal((await app.inject({ url: '/api/nas/shares/access?dataset=tank/Files', headers: { cookie: member } })).statusCode, 403);
+  } finally {
+    smbUsers = [];
+  }
+});
+
+test('at startup, once listening, shares from before lists become admins-only too', async () => {
+  shares.set('tank/boot', share('tank/boot', true, null));
+  const fresh = await createApp(
+    {
+      ...config,
+      staticDir: '',
+      dbFile: ':memory:',
+      adminEmail: 'alex@example.com',
+      adminPassword: PW,
+      locations: [],
+      locationsDir: join(base, 'locations'),
+      accessAud: '',
+      nasSocket: join(base, 'mk-nas.sock'),
+    },
+    { logger: false },
+  );
+  try {
+    assert.equal(shares.get('tank/boot')?.smbAccess, null, 'not before the server listens');
+    await fresh.listen({ port: 0, host: '127.0.0.1' });
+    for (let i = 0; i < 200 && shares.get('tank/boot')?.smbAccess === null; i++) await new Promise((r) => setTimeout(r, 10));
+    assert.deepEqual(shares.get('tank/boot')?.smbAccess, [{ user: 'alex', level: 'write' }]);
+  } finally {
+    await fresh.close();
+  }
 });
 
 test('the account page: every signed-in person may set their own SMB password; the name comes from the email', async () => {

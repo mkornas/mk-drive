@@ -208,6 +208,28 @@ export interface Meta {
   nasAgent?: string;
 }
 
+/** NAS mode, `GET /api/nas/shares/access?dataset=`: the drive accounts for a share's SMB list, with what the dialog starts from. */
+export interface ShareAccess {
+  /** The drive location the dataset is; null when it is not one (or no dataset was asked about). */
+  location: string | null;
+  accounts: ShareAccessAccount[];
+}
+
+export interface ShareAccessAccount {
+  userId: number;
+  email: string;
+  name: string;
+  role: Role;
+  /** The name Samba knows the account by. */
+  smbName: string;
+  /** The account has set an SMB password; without one it cannot sign in, list or not. */
+  hasPassword: boolean;
+  /** The account's grant on the location; admins 'write'; null without a location or a grant. */
+  grant: 'read' | 'write' | null;
+  /** Where the dialog starts for a share without a list: the grant, or for a dataset that is not a location, admins 'write' and nobody else. */
+  suggested: 'read' | 'write' | null;
+}
+
 export interface Health {
   ok: boolean;
   build: string;

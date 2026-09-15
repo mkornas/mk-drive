@@ -29,7 +29,7 @@ import { registerVersionRoutes } from './routes/versions.ts';
 import { seedDemo, seedDemoUsers } from './demo.ts';
 import { HttpError } from './errors.ts';
 import { NasClient } from './nas.ts';
-import { registerNasMonitorRoute, registerNasRoutes } from './routes/nas.ts';
+import { migrateShareAccess, registerNasMonitorRoute, registerNasRoutes } from './routes/nas.ts';
 import { registerSsoSettingsRoutes } from './routes/sso-settings.ts';
 
 /** What the browser may load for the app itself (the file endpoint has its own, stricter, rules). */
@@ -140,6 +140,14 @@ export async function createApp(cfg: Config, opts: { logger?: boolean } = {}): P
   if (cfg.nasSocket) {
     nas = new NasClient(cfg.nasSocket);
     registerNasRoutes(app, nas, locations, users);
+    // shares from before per-share SMB lists become admins-only, once the server is up; not awaited, the agent may not
+    // answer yet (GET /api/nas/shares does it again)
+    const agent = nas;
+    app.addHook('onListen', async () => {
+      migrateShareAccess(agent, users, { userId: null, email: 'mk-drive' }).catch((e: Error) =>
+        app.log.warn(`SMB share lists not checked at startup: ${e.message}`),
+      );
+    });
     if (cfg.nasMonitorToken.length >= 32) registerNasMonitorRoute(app, nas, cfg.nasMonitorToken, auth.throttle, cfg.trustedProxies);
     else if (cfg.nasMonitorToken) app.log.warn('DRIVE_NAS_MONITOR_TOKEN is shorter than 32 characters: the monitor route stays off');
     app.log.info(`NAS mode: storage section over ${cfg.nasSocket}`);
