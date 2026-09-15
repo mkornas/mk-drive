@@ -9,16 +9,6 @@ One card per line, ranked top-down inside each column. `#p0`..`#p3` = priority, 
 
 ## Now
 
-- [ ] *Security: uploaded HTML runs on the drive origin** WebDAV GET serves .html/.svg/.xml inline with the session cookie accepted on /dav, /api/versions/file serves .xml unsandboxed: one header helper (attachment + CSP sandbox + nosniff) for every raw-file response; /dav only app passwords. Audit 2026-09-15 #p0 #security
-- [ ] *Security: session ids readable by scripts** /api/me, /api/login and /api/sessions return the raw cookie value: a separate public session id #p0 #security
-- [ ] *Security: SSO ignores email_verified** require identity.emailVerified, refuse non-ASCII emails #p0 #security
-- [ ] *Security: symlinks escape a location** versions read/restore follow symlinks out, writes follow a final-component symlink, symlinks bypass grants and hidden names, delete acts on the target: realpath containment on every path, O_NOFOLLOW writes, lstat for rm/rename #p0 #security
-- [ ] *Security: SMB name collisions** an SMB name from the email's local part lets a member overwrite another account's SMB password: unique names per drive account #p1 #security
-- [ ] *Security: throttles** concurrent login guesses all evaluated; cf-connecting-ip trusted from any peer (share-password guessing on the LAN, unbounded throttle map): pending-attempt lock, trust the header only from configured peers, per-share unlock throttle, capped map #p1 #security
-- [ ] *Security: upload links unbounded** no size/count/rate limit for anonymous upload links, chunked PATCH without Content-Length writes past the announced size: require Content-Length, count bytes, per-link caps, space check, rate limit #p1 #security
-- [ ] *Security: first-boot setup race** two concurrent /api/setup both become admin: check and insert atomically #p1 #security
-- [ ] *Security: demo lock bypass** /api/%61ccount/password passes the demo lock (checked on the raw URL): check the decoded path — the public demo is affected #p0 #security
-
 ## Next
 
 - [ ] *Datasets page polish** tree indentation by hierarchy, used bar relative to quota, 'Open in the drive' link for location datasets, snapshot count per dataset, delete dataset with typed name once the agent has dataset.destroy #p2 #nas [[datasets-page-polish-tree-indentation-by-hierarchy-used-bar]]
@@ -35,7 +25,6 @@ One card per line, ranked top-down inside each column. `#p0`..`#p3` = priority, 
 - [ ] *Security: user-share takeover** a weaker user re-sharing the same path takes over and downgrades an existing share: keep the existing owner #p2 #security
 - [ ] *Security: open redirect in @mk-kit/auth safeNext** /\t/evil passes: reject control characters, parse against the origin (fix in mk-kit, then bump) #p2 #security
 - [ ] *Security: Web Share Target accepts cross-site POSTs** ignore /share POSTs that are not from the installed app #p3 #security
-- [ ] *Security: logout without a session returns 500** sessionOnly reads identity.via on undefined #p3 #bug
 
 ## Later
 
@@ -43,6 +32,16 @@ One card per line, ranked top-down inside each column. `#p0`..`#p3` = priority, 
 - [ ] **iOS app** File Provider extension over /api (ETags, chunked uploads); Swift, separate repo, after the web app is stable #p3 #beyond
 
 ## Done
+- [x] *Security: logout without a session returns 500** sessionOnly reads identity.via on undefined #p3 #bug [[security-logout-without-a-session-returns-500-sessiononly-re]]
+- [x] *Security: demo lock bypass** /api/%61ccount/password passes the demo lock (checked on the raw URL): check the decoded path — the public demo is affected #p0 #security [[security-demo-lock-bypass-api-61ccount-password-passes-the-d]]
+- [x] *Security: first-boot setup race** two concurrent /api/setup both become admin: check and insert atomically #p1 #security [[security-first-boot-setup-race-two-concurrent-api-setup-both]]
+- [x] *Security: upload links unbounded** no size/count/rate limit for anonymous upload links, chunked PATCH without Content-Length writes past the announced size: require Content-Length, count bytes, per-link caps, space check, rate limit #p1 #security [[security-upload-links-unbounded-no-size-count-rate-limit-for]]
+- [x] *Security: throttles** concurrent login guesses all evaluated; cf-connecting-ip trusted from any peer (share-password guessing on the LAN, unbounded throttle map): pending-attempt lock, trust the header only from configured peers, per-share unlock throttle, capped map #p1 #security [[security-throttles-concurrent-login-guesses-all-evaluated-cf]]
+- [x] *Security: SMB name collisions** an SMB name from the email's local part lets a member overwrite another account's SMB password: unique names per drive account #p1 #security [[security-smb-name-collisions-an-smb-name-from-the-email-s-lo]]
+- [x] *Security: symlinks escape a location** versions read/restore follow symlinks out, writes follow a final-component symlink, symlinks bypass grants and hidden names, delete acts on the target: realpath containment on every path, O_NOFOLLOW writes, lstat for rm/rename #p0 #security [[security-symlinks-escape-a-location-versions-read-restore-fo]]
+- [x] *Security: SSO ignores email_verified** require identity.emailVerified, refuse non-ASCII emails #p0 #security [[security-sso-ignores-email-verified-require-identity-emailve]]
+- [x] *Security: session ids readable by scripts** /api/me, /api/login and /api/sessions return the raw cookie value: a separate public session id #p0 #security [[security-session-ids-readable-by-scripts-api-me-api-login-an]]
+- [x] *Security: uploaded HTML runs on the drive origin** WebDAV GET serves .html/.svg/.xml inline with the session cookie accepted on /dav, /api/versions/file serves .xml unsandboxed: one header helper (attachment + CSP sandbox + nosniff) for every raw-file response; /dav only app passwords. Audit 2026-09-15 #p0 #security [[security-uploaded-html-runs-on-the-drive-origin-webdav-get-s]]
 - [x] **Single sign-on from the Settings page** an admin sets the OpenID Connect provider (button name, issuer, client ID, secret) under Settings → Sign-in, stored in the drive's database, checked against the provider before it is saved; the redirect and logout URIs shown to copy; DRIVE_OIDC_* in the environment still wins and shows read-only; turning it off never locks out the admin who is signed in through it #p1 #auth [[single-sign-on-from-the-settings-page]]
 - [x] *Network settings page** Storage → Network: hostname, per-interface DHCP/static address, gateway, DNS; a change is applied with a countdown and reverts unless the page confirms it still reaches the NAS; shows the mDNS name to type on other machines #p2 #nas [[network-settings-page-storage-network-hostname-per-interface]]
 - [x] *Storage overview: vitals with graphs** a row of sparklines on the Overview from the agent's system verb — CPU, memory, network in/out, disk I/O, the hottest temperature — with the last 30 minutes, following the dataviz rules (one palette, no chart junk); the pool bars stay the hero #p2 #nas [[storage-overview-vitals-with-graphs-a-row-of-sparklines-on-t]]
