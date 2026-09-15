@@ -9,8 +9,6 @@ One card per line, ranked top-down inside each column. `#p0`..`#p3` = priority, 
 
 ## Now
 
-- [ ] **SMB access per share (drive)** the share dialog's who-can-open list prefilled from the location's grants, existing shares become admins-only, the Shares page says who can connect per share #p1 #shares #security
-
 ## Next
 
 - [ ] *Datasets page polish** tree indentation by hierarchy, used bar relative to quota, 'Open in the drive' link for location datasets, snapshot count per dataset, delete dataset with typed name once the agent has dataset.destroy #p2 #nas [[datasets-page-polish-tree-indentation-by-hierarchy-used-bar]]
@@ -34,6 +32,7 @@ One card per line, ranked top-down inside each column. `#p0`..`#p3` = priority, 
 - [ ] **iOS app** File Provider extension over /api (ETags, chunked uploads); Swift, separate repo, after the web app is stable #p3 #beyond
 
 ## Done
+- [x] **SMB access per share (drive)** the share dialog's who-can-open list prefilled from the location's grants, existing shares become admins-only, the Shares page says who can connect per share #p1 #shares #security [[smb-access-per-share-drive]]
 - [x] *Security: logout without a session returns 500** sessionOnly reads identity.via on undefined #p3 #bug [[security-logout-without-a-session-returns-500-sessiononly-re]]
 - [x] *Security: demo lock bypass** /api/%61ccount/password passes the demo lock (checked on the raw URL): check the decoded path — the public demo is affected #p0 #security [[security-demo-lock-bypass-api-61ccount-password-passes-the-d]]
 - [x] *Security: first-boot setup race** two concurrent /api/setup both become admin: check and insert atomically #p1 #security [[security-first-boot-setup-race-two-concurrent-api-setup-both]]
