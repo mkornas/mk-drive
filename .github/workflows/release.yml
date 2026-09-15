@@ -40,6 +40,8 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
+          # no provenance attestation: the default one records the push event, the pusher's email included, publicly
+          provenance: false
           context: .
           push: true
           load: false
