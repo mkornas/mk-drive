@@ -1,5 +1,13 @@
 const UNITS = ['B', 'kB', 'MB', 'GB', 'TB', 'PB'];
 
+/**
+ * The name other machines on the LAN reach the NAS by: its hostname with .local, which mk-nas answers over mDNS on every
+ * install. A bare hostname resolves only where the network's DNS happens to know it. A name with a dot is left alone.
+ */
+export function lanName(hostname: string): string {
+  return !hostname || hostname === '?' || hostname.includes('.') ? hostname : `${hostname}.local`;
+}
+
 export function bytes(n: number | undefined | null, digits = 1): string {
   if (n == null || !Number.isFinite(n)) return '—';
   if (n < 1024) return `${n} B`;

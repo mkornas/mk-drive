@@ -11,7 +11,7 @@ import { MkEmptyState } from '@mk-kit/ui/status';
 import type { Compression, Dataset, Policy, Share, Snapshot } from '../../../../../shared/nas';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { DriveService } from '../../core/drive.service';
-import { bytes } from '../../core/format';
+import { bytes, lanName } from '../../core/format';
 import { StorageShell } from './shell';
 import { loader } from './load';
 import { GIB, typedConfirm } from './confirm';
@@ -262,7 +262,7 @@ export class StorageDatasetsPage {
 
   async share(d: Dataset): Promise<void> {
     const ref = this.dialog.open<ShareDialog, Share | null | undefined, ShareDialogData>(ShareDialog, {
-      data: { dataset: d.name, share: this.shareOf(d.name) ?? null, host: this.q.data()?.host ?? 'nas' },
+      data: { dataset: d.name, share: this.shareOf(d.name) ?? null, host: lanName(this.q.data()?.host ?? 'nas') },
       size: 'md',
     });
     const result = await ref.afterClosed;

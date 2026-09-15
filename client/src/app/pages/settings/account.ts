@@ -6,6 +6,7 @@ import { MkCard, MkDescItem, MkDescriptionList } from '@mk-kit/ui/data';
 import { MK_ACCENT_ORDER, MK_ACCENTS, MkAccentService, mkAccentSwatch, MkThemeService, type MkAccentKey, type MkThemePreference } from '@mk-kit/ui/core';
 import { ApiService, errorMessage } from '../../core/api.service';
 import { DriveService } from '../../core/drive.service';
+import { lanName } from '../../core/format';
 import { SettingsShell } from './shell';
 
 @Component({
@@ -78,7 +79,7 @@ import { SettingsShell } from './shell';
           @if (smb(); as s) {
             <p class="muted">
               Finder, Explorer and phones open this NAS's shares with your drive account. Sign in there as <strong class="mono">{{ s.name }}</strong> with the
-              SMB password below{{ s.hasPassword ? '' : ' — none is set yet' }}; the server is <code>smb://{{ s.host }}</code
+              SMB password below{{ s.hasPassword ? '' : ' — none is set yet' }}; the server is <code>smb://{{ lan(s.host) }}</code
               >.
             </p>
             <form class="form" (submit)="saveSmb($event)">
@@ -196,6 +197,7 @@ export class AccountPage {
   protected readonly name = signal(this.drive.me()?.name ?? '');
   protected readonly savingName = signal(false);
   protected readonly current = signal('');
+  protected readonly lan = lanName;
   protected readonly smb = signal<{ name: string; hasPassword: boolean; host: string } | null>(null);
   protected readonly smbPassword = signal('');
   protected readonly savingSmb = signal(false);

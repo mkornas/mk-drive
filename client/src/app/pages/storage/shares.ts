@@ -7,6 +7,7 @@ import { MkIcon } from '@mk-kit/ui/icon';
 import { MkEmptyState } from '@mk-kit/ui/status';
 import type { Share, SmbUser, Version } from '../../../../../shared/nas';
 import { ApiService } from '../../core/api.service';
+import { lanName } from '../../core/format';
 import { StorageShell } from './shell';
 import { loader } from './load';
 import { ShareDialog, type ShareDialogData } from './share-dialog';
@@ -51,7 +52,7 @@ import { ShareDialog, type ShareDialogData } from './share-dialog';
                 @if (s.smb) {
                   <div class="way">
                     <mk-tag size="sm" tone="primary">SMB</mk-tag>
-                    <code>smb://{{ d.version.hostname }}/{{ s.name }}</code>
+                    <code>smb://{{ lan(d.version.hostname) }}/{{ s.name }}</code>
                     @if (s.timeMachine) {
                       <mk-tag size="sm" tone="neutral">Time Machine</mk-tag>
                     }
@@ -60,7 +61,7 @@ import { ShareDialog, type ShareDialogData } from './share-dialog';
                 @if (s.nfs) {
                   <div class="way">
                     <mk-tag size="sm" tone="primary">NFS</mk-tag>
-                    <code>{{ d.version.hostname }}:{{ s.mountpoint }}</code>
+                    <code>{{ lan(d.version.hostname) }}:{{ s.mountpoint }}</code>
                     <span class="muted small">for {{ s.nfsClients.length ? s.nfsClients.join(', ') : 'the private networks' }}</span>
                   </div>
                 }
@@ -68,6 +69,12 @@ import { ShareDialog, type ShareDialogData } from './share-dialog';
             </li>
           }
         </ul>
+        @if (d.shares.length) {
+          <p class="muted small hint">
+            <span class="mono">{{ lan(d.version.hostname) }}</span> works from Macs, Linux, phones and current Windows. Where a name does not resolve, use the
+            box's IP address, or its name in your network's DNS, in its place.
+          </p>
+        }
 
         <h2>Who can connect over SMB</h2>
         <p class="muted">
@@ -156,11 +163,15 @@ import { ShareDialog, type ShareDialogData } from './share-dialog';
       .small {
         font-size: var(--mk-font-size-xs);
       }
+      .hint {
+        margin: calc(-1 * var(--mk-space-4)) 0 var(--mk-space-6);
+      }
     `,
   ],
 })
 export class StorageSharesPage {
   private readonly api = inject(ApiService);
+  protected readonly lan = lanName;
   private readonly dialog = inject(MkDialogService);
   private readonly toast = inject(MkToastService);
   protected readonly q = loader<{ shares: Share[]; users: SmbUser[]; version: Version }>(async () => {
@@ -178,7 +189,7 @@ export class StorageSharesPage {
 
   async edit(s: Share): Promise<void> {
     const ref = this.dialog.open<ShareDialog, Share | null | undefined, ShareDialogData>(ShareDialog, {
-      data: { dataset: s.dataset, share: s, host: this.q.data()?.version.hostname ?? 'nas' },
+      data: { dataset: s.dataset, share: s, host: lanName(this.q.data()?.version.hostname ?? 'nas') },
       size: 'md',
     });
     const result = await ref.afterClosed;
