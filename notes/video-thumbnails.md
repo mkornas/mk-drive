@@ -1,0 +1,3 @@
+# Video thumbnails
+
+- 2026-09-11 11:48 — Shipped 73611e0, deployed. thumbs.ts: detectVideo() once at start (DRIVE_FFMPEG, default ffmpeg), canThumb() advertises video/* only then; generateVideo() = ffmpeg -ss 1 (fallback 0) → PNG frame → sharp → WebP in the same capped cache; provider seam gains optional localPath() (LocalProvider only; remote providers just get no video thumbs). Image ships ffmpeg (apk). Video preview uses the frame as poster. Test with a stand-in ffmpeg script (58 tests). Verified live: a clip generated inside the container got thumb:true, /api/thumb returned WebP, the grid shows the frame; clip removed. — main @ 73611e0 Video poster frames through ffmpeg

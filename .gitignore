@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.angular/
+.idea/
+*.log
+.env
+.DS_Store
+/data/

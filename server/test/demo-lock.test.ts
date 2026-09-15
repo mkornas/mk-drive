@@ -1,0 +1,50 @@
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { FastifyInstance } from 'fastify';
+import { config, type Config } from '../src/config.ts';
+import { createApp } from '../src/app.ts';
+import { DEMO_EMAIL, DEMO_PASSWORD } from '../src/demo.ts';
+
+let base: string;
+let app: FastifyInstance;
+let cookie: string;
+const json = { 'content-type': 'application/json' };
+
+before(async () => {
+  base = await mkdtemp(join(tmpdir(), 'mk-drive-demo-lock-'));
+  const cfg: Config = { ...config, staticDir: '', dbFile: ':memory:', dataDir: base, adminEmail: '', adminPassword: '', locations: [], accessAud: '', demo: true, demoSeed: '' };
+  app = await createApp(cfg, { logger: false });
+  const login = await app.inject({ method: 'POST', url: '/api/login', payload: JSON.stringify({ email: DEMO_EMAIL, password: DEMO_PASSWORD }), headers: json });
+  assert.equal(login.statusCode, 200);
+  cookie = (login.headers['set-cookie'] as string).split(';')[0];
+});
+after(async () => {
+  await app.close();
+  await rm(base, { recursive: true, force: true });
+});
+
+const post = (url: string, body: unknown) => app.inject({ method: 'POST', url, payload: JSON.stringify(body), headers: { ...json, cookie } });
+
+test('the demo account is a member, and the demo refuses what would hit the next visitor', async () => {
+  const me = await app.inject({ url: '/api/me', headers: { cookie } });
+  assert.equal(me.json<{ role: string }>().role, 'member');
+  assert.equal((await post('/api/account/password', { current: DEMO_PASSWORD, password: 'something-else-entirely' })).statusCode, 403);
+  assert.equal((await app.inject({ method: 'PATCH', url: '/api/account', payload: JSON.stringify({ name: 'Mallory' }), headers: { ...json, cookie } })).statusCode, 403);
+  assert.equal((await app.inject({ method: 'PUT', url: '/api/settings/name', payload: JSON.stringify({ name: 'Pwned' }), headers: { ...json, cookie } })).statusCode, 403);
+  assert.equal((await post('/api/users', { email: 'x@example.com', name: 'X', role: 'member', password: 'long-enough-password' })).statusCode, 403);
+  assert.equal((await post('/api/connectors', { name: 'Evil', type: 'webdav', url: 'http://169.254.169.254/' })).statusCode, 403);
+  assert.equal((await post('/api/sessions/revoke-others', {})).statusCode, 403);
+  const still = await app.inject({ method: 'POST', url: '/api/login', payload: JSON.stringify({ email: DEMO_EMAIL, password: DEMO_PASSWORD }), headers: json });
+  assert.equal(still.statusCode, 200, 'the demo password is unchanged');
+});
+
+test('files, share links and the iOS sign-in flow still work', async () => {
+  assert.equal((await post('/api/mkdir', { path: 'Demo', name: 'From a visitor' })).statusCode, 200);
+  const minted = await post('/api/app-passwords', { name: 'A reviewer phone' });
+  assert.equal(minted.statusCode, 201);
+  const id = minted.json<{ id: string }>().id;
+  assert.equal((await app.inject({ method: 'DELETE', url: `/api/app-passwords/${id}`, headers: { cookie } })).statusCode, 403, 'but nobody revokes another visitor\'s phone');
+});

@@ -1,0 +1,67 @@
+# A tag vX.Y.Z → test → ghcr.io/mkornas/mk-drive:X.Y.Z, and a GitHub Release with the image as a
+# tarball, so a NAS can take a named, tested version with or without a registry login.
+# Never touches :latest and never calls the deploy hook: that stays the job of deploy.yml on main.
+name: Release
+on:
+  push:
+    tags: ['v*.*.*']
+permissions:
+  contents: write
+  packages: write
+env:
+  IMAGE: ghcr.io/mkornas/mk-drive
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: The tag matches the version the app reports
+        run: |
+          tag=${GITHUB_REF_NAME#v}
+          have=$(node -p "require('./server/package.json').version")
+          [ "$tag" = "$have" ] || { echo "::error::tag v$tag but server/package.json says $have — run tools/release.sh"; exit 1; }
+          echo "VERSION=$tag" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+        working-directory: server
+      - run: npm run typecheck && npm test
+        working-directory: server
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          load: false
+          build-args: BUILD_SHA=${{ github.sha }}
+          tags: ${{ env.IMAGE }}:${{ env.VERSION }}
+          cache-from: type=gha
+      - name: The image as a tarball, and the notes
+        run: |
+          mkdir -p out
+          docker pull -q "$IMAGE:$VERSION"
+          docker save "$IMAGE:$VERSION" | gzip -1 > "out/mk-drive-$VERSION.tgz"
+          (cd out && sha256sum "mk-drive-$VERSION.tgz" > SHA256SUMS)
+          prev=$(git describe --tags --abbrev=0 "$GITHUB_REF_NAME^" 2>/dev/null || true)
+          {
+            echo "Image: \`$IMAGE:$VERSION\` (also attached as \`mk-drive-$VERSION.tgz\`, load it with \`docker load -i\`)."
+            echo
+            echo "NAS contract: $(grep -o 'NAS_CONTRACT = [0-9]*' server/src/nas.ts | grep -o '[0-9]*$')"
+            echo
+            echo "## Changes${prev:+ since $prev}"
+            git log --no-merges --format='- %s' ${prev:+$prev..}"$GITHUB_REF_NAME" -- server client shared Dockerfile | head -200
+          } > out/notes.md
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$GITHUB_REF_NAME" out/mk-drive-*.tgz out/SHA256SUMS --title "mk-drive $VERSION" --notes-file out/notes.md --verify-tag

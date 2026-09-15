@@ -1,0 +1,3 @@
+# @mk-kit/ui 0.59
+
+- 2026-09-11 09:57 — @mk-kit/ui 0.59.0 (commit dcc8e56, deployed). Removed: guarded()/busy re-entry lock (focus restore now waits a frame), the allowInInput + own input-type check (hotkeys skip checkboxes/buttons themselves; only the dialog/menu guard stays), tree nodes use iconName (hard-drive root, folder children). Kept the app-side ordering: the grid shares it and MkTableColumn.compare is negated for desc, which would put folders last — noted in notes/ideas.md for mk-kit. Verified on a running drive: New folder / F2 rename / Delete confirmed with Enter, no dialog re-opens; Delete fires with a row checkbox focused; tree icons render. Test folders purged. — main @ dcc8e56 @mk-kit/ui 0.59: drop the workarounds it made unnecessary

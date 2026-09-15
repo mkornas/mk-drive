@@ -1,0 +1,3 @@
+# In-place markdown editing
+
+- 2026-09-11 12:04 — Shipped 32a6aca, deployed. PUT /api/file with If-Match (428 without, 412 stale, 415 non-text, 403 read-only), audit 'edit'. Preview: Edit button for text/markdown/json under the 512 KB preview limit, plain textarea editor, ⌘/Ctrl+S, unsaved marker, the browse row refreshes on save and keeps the new etag. mk-block-editor deliberately not used: it is block/HTML based and would rewrite a .md file on the way through; a plain editor keeps the bytes. Verified live: edited a file in the drawer, saved with Ctrl+S, content confirmed via the API; test file removed. 60 tests. — main @ 32a6aca Edit markdown, JSON and text in place

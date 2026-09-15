@@ -1,0 +1,3 @@
+# *Storage overview** /storage becomes Overview (Health folds in): stat tiles — capacity used/free across pools with a bar, pools and their health, disks with the hottest temperature, snapshots count and the last automatic one, scrub state; the problems list on top; every tile links to its page
+
+- 2026-09-12 19:34 — Shipped in de35fe7: Health folded into Overview — problems first, one labelled bar per pool with used/free/last scrub/snapshots, the disks as bays grouped by role with size, model, id, temperature and health. — main @ de35fe7 Storage: an overview built around the disks in the box, and the pages fleshed out

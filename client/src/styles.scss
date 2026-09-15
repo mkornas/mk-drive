@@ -1,0 +1,122 @@
+/* mk-drive wears the Momentum preset (src/styles/momentum-preset.css, vendored from
+   mk-kit until it ships in the package): Manrope set heavy and tight, violet-grey
+   surfaces, generous radii. `data-mk-preset="momentum"` sits on <html>; light and
+   dark follow `data-mk-theme` or the OS. Said here: the font's real name — the
+   variable Manrope loaded by @fontsource — and the drive's own accent (below). */
+:root[data-mk-preset='momentum'] {
+  --mk-font-sans: 'Manrope Variable', 'Manrope', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* The drive's own accent is Momentum's "Bumblebee": yellow #FFC400 with black on it,
+   the black / yellow split of the picker's swatch. It replaces the preset's indigo as
+   the default primary; the picker on the Account page still swaps in any other
+   accent (then the kit writes the tokens inline and the contrast goes back to white).
+   Same selectors as the preset's own light / dark blocks, so they win by order alone. */
+:root[data-mk-preset='momentum']:not([data-mk-contrast='high']) {
+  --mk-primary: #ffc400;
+  --mk-primary-hover: #e6b000;
+  --mk-primary-active: #cc9c00;
+  --mk-primary-contrast: #16161f;
+  --mk-primary-subtle: #fff8e0;
+  --mk-primary-subtle-hover: #fff3cc;
+  --mk-primary-subtle-text: #8a6300;
+  --mk-selected-bg: #fff8e0;
+  --mk-selected-text: #8a6300;
+  --mk-focus-ring: #d99e00;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-mk-theme='light'])[data-mk-preset='momentum']:not([data-mk-contrast='high']) {
+    --mk-primary: #ffc400;
+    --mk-primary-hover: #ffcb1f;
+    --mk-primary-active: #ffd138;
+    --mk-primary-contrast: #16161f;
+    --mk-primary-subtle: #362f21;
+    --mk-primary-subtle-hover: #493d1e;
+    --mk-primary-subtle-text: #ffd447;
+    --mk-selected-bg: #362f21;
+    --mk-selected-text: #ffd447;
+    --mk-focus-ring: #ffc400;
+  }
+}
+:root[data-mk-theme='dark'][data-mk-preset='momentum']:not([data-mk-contrast='high']) {
+  --mk-primary: #ffc400;
+  --mk-primary-hover: #ffcb1f;
+  --mk-primary-active: #ffd138;
+  --mk-primary-contrast: #16161f;
+  --mk-primary-subtle: #362f21;
+  --mk-primary-subtle-hover: #493d1e;
+  --mk-primary-subtle-text: #ffd447;
+  --mk-selected-bg: #362f21;
+  --mk-selected-text: #ffd447;
+  --mk-focus-ring: #ffc400;
+}
+/* A picked accent other than Bumblebee is a saturated fill again: white on it. */
+:root[data-mk-preset='momentum'][data-mk-accent]:not([data-mk-accent='bumblebee']) {
+  --mk-primary-contrast: #ffffff;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+body {
+  background: var(--mk-bg);
+  color: var(--mk-text);
+  font-family: var(--mk-font-sans);
+  font-feature-settings: 'tnum' 1, 'cv11' 1;
+  -webkit-font-smoothing: antialiased;
+}
+h1,
+h2,
+h3 {
+  letter-spacing: var(--mk-letter-spacing-tight, -0.015em);
+  font-weight: var(--mk-font-weight-bold, 700);
+}
+
+.muted {
+  color: var(--mk-text-muted);
+}
+.mono {
+  font-family: var(--mk-font-mono);
+  font-size: 0.92em;
+}
+.nowrap {
+  white-space: nowrap;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--mk-space-2);
+  flex-wrap: wrap;
+}
+.num {
+  font-variant-numeric: tabular-nums;
+}
+a.plain {
+  color: inherit;
+  text-decoration: none;
+}
+a.plain:hover {
+  text-decoration: underline;
+}
+
+/* Pages inside the shell share one measure and rhythm. */
+.page {
+  padding: var(--mk-space-6) var(--mk-space-6) var(--mk-space-10);
+  max-width: 1100px;
+}
+.page--narrow {
+  max-width: 720px;
+}
+@media (max-width: 640px) {
+  .page {
+    padding: var(--mk-space-4) var(--mk-space-4) var(--mk-space-8);
+  }
+}
+
+/* The sign-in, set-up and protected-link cards: a text field spans the card. */
+app-auth-card input[mkInput] {
+  width: 100%;
+  box-sizing: border-box;
+}

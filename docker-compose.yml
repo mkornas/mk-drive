@@ -1,0 +1,46 @@
+# mk-drive — mount the directories you want to see under /locations.
+#   docker compose up -d      → http://<host>:8810
+# Every directory directly under /locations becomes a location (read-only when
+# the mount is), or describe them explicitly with DRIVE_LOCATIONS (see README).
+services:
+  mk-drive:
+    image: ghcr.io/mkornas/mk-drive:latest
+    build: .
+    container_name: mk-drive
+    restart: unless-stopped
+    # Run as the uid that owns your files so uploads and renames get the right owner.
+    user: "${DRIVE_UID:-1000}:${DRIVE_GID:-1000}"
+    ports:
+      - "8810:8810"
+    environment:
+      TZ: ${TZ:-UTC}
+      # First start only: create the admin from these instead of the set-up page.
+      DRIVE_ADMIN_EMAIL: ${DRIVE_ADMIN_EMAIL:-}
+      DRIVE_ADMIN_PASSWORD: ${DRIVE_ADMIN_PASSWORD:-}
+      # Cloudflare Access, when the drive is published through a tunnel.
+      DRIVE_ACCESS_TEAM: ${DRIVE_ACCESS_TEAM:-}
+      DRIVE_ACCESS_AUD: ${DRIVE_ACCESS_AUD:-}
+      # Single sign-on through an OpenID Connect provider (Pocket ID, Authelia, Keycloak, …).
+      DRIVE_OIDC_ISSUER: ${DRIVE_OIDC_ISSUER:-}
+      DRIVE_OIDC_CLIENT_ID: ${DRIVE_OIDC_CLIENT_ID:-}
+      DRIVE_OIDC_CLIENT_SECRET: ${DRIVE_OIDC_CLIENT_SECRET:-}
+      DRIVE_OIDC_NAME: ${DRIVE_OIDC_NAME:-Single sign-on}
+      # Password form: on (everywhere), lan (private addresses only — the internet sees SSO alone), off.
+      DRIVE_PASSWORD_LOGIN: ${DRIVE_PASSWORD_LOGIN:-on}
+      # Demo mode (never with real data): DRIVE_DEMO=true recreates a sample location and the demo
+      # admin on every start; DRIVE_DEMO_SEED names a directory copied into it (real photos, videos, PDFs).
+      # DRIVE_DEMO: "true"
+      # DRIVE_DEMO_SEED: /seed
+      # Optional explicit locations (JSON array), instead of discovering /locations/*.
+      DRIVE_LOCATIONS: ${DRIVE_LOCATIONS:-}
+      # NAS mode (a host running mk-nas): the agent's socket, mounted below; admins get the Storage section.
+      DRIVE_NAS_SOCKET: ${DRIVE_NAS_SOCKET:-}
+    volumes:
+      - ./data/locations/Files:/locations/Files
+      - ./data:/data
+      # NAS mode: uncomment and add the mk-nas group to `group_add` so the socket lets us in.
+      # - /run/mk-nas.sock:/run/mk-nas.sock
+    deploy:
+      resources:
+        limits:
+          memory: 256m

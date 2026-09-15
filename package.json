@@ -1,0 +1,16 @@
+{
+  "name": "mk-drive",
+  "private": true,
+  "version": "0.2.2",
+  "description": "Self-hosted web drive: point it at storage, browse, upload, preview and share. Built on @mk-kit/ui.",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "dev": "npm --prefix server run dev & npm --prefix client start",
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client start",
+    "build": "npm --prefix client run build",
+    "test": "npm --prefix server test",
+    "typecheck": "npm --prefix server run typecheck",
+    "postinstall": "npm --prefix server install && npm --prefix client install"
+  }
+}
