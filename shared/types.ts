@@ -134,6 +134,12 @@ export interface SignOutResult {
   redirect?: string;
 }
 
+/** `POST /api/account/password` (body `{ current, password, revokeAppPasswords? }`, default true): the other sessions are signed out; how many app passwords went with them. */
+export interface PasswordChanged {
+  ok: boolean;
+  appPasswordsRevoked: number;
+}
+
 export interface Session {
   /** A public id for signing this session out (`DELETE /api/sessions/:id`); never the cookie's secret. */
   id: string;
@@ -192,6 +198,8 @@ export interface Meta {
   me: Identity | null;
   /** No users exist yet: the setup page must create the admin. */
   setupRequired: boolean;
+  /** While setup is required: it takes the setup code the box shows after installing (`DRIVE_SETUP_TOKEN`). */
+  setupCodeRequired?: boolean;
   /** Why a presented credential (e.g. a Cloudflare Access identity) was refused. */
   reason?: string;
   /** Demo mode: sample data, reset on every start. */

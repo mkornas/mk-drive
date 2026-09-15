@@ -69,11 +69,14 @@ const LEVELS: MkSelectOption[] = [
           }
         </section>
         <section class="proto">
-          <mk-checkbox [(checked)]="nfs">Over NFS — other Linux boxes and servers; no accounts, whoever is on the allowed networks</mk-checkbox>
+          <mk-checkbox [(checked)]="nfs">Over NFS — other Linux boxes and servers; no accounts, only the hosts and networks listed</mk-checkbox>
           @if (nfs()) {
             <div class="sub">
-              <mk-form-field label="Allowed networks and hosts" hint="Comma-separated. Empty = the private networks (10/8, 172.16/12, 192.168/16)."
-                ><input mkInput [value]="clients()" (input)="clients.set($any($event.target).value)" placeholder="192.168.1.0/24, laptop"
+              <mk-form-field
+                label="Allowed hosts and networks"
+                required
+                hint="Hosts or networks allowed to mount it, comma-separated, e.g. 192.168.1.0/24 or laptop.local"
+                ><input mkInput [value]="clients()" (input)="clients.set($any($event.target).value)" placeholder="192.168.1.0/24, laptop.local" required
               /></mk-form-field>
               <p class="how">
                 Mount <code>{{ data.host }}:{{ data.share?.mountpoint ?? '…' }}</code>
@@ -180,7 +183,14 @@ export class ShareDialog {
   protected readonly clients = signal(this.data.share?.nfsClients.join(', ') ?? '');
   protected readonly busy = signal(false);
   protected readonly error = signal('');
-  protected readonly valid = computed(() => this.smb() || this.nfs());
+  /** What the NFS field says, as the agent takes it; NFS needs at least one entry. */
+  private readonly clientList = computed(() =>
+    this.clients()
+      .split(',')
+      .map((c) => c.trim())
+      .filter(Boolean),
+  );
+  protected readonly valid = computed(() => (this.smb() || this.nfs()) && (!this.nfs() || this.clientList().length > 0));
   protected readonly levels = LEVELS;
   /** One row per drive account; null until loaded. */
   protected readonly rows = signal<{ account: ShareAccessAccount; level: WritableSignal<Level> }[] | null>(null);
@@ -210,10 +220,7 @@ export class ShareDialog {
     this.busy.set(true);
     this.error.set('');
     try {
-      const nfsClients = this.clients()
-        .split(',')
-        .map((c) => c.trim())
-        .filter(Boolean);
+      const nfsClients = this.clientList();
       const rows = this.rows();
       const s = await this.api.nas.setShare({
         dataset: this.data.dataset,

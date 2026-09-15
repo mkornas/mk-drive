@@ -17,6 +17,8 @@ services:
       # First start only: create the admin from these instead of the set-up page.
       DRIVE_ADMIN_EMAIL: ${DRIVE_ADMIN_EMAIL:-}
       DRIVE_ADMIN_PASSWORD: ${DRIVE_ADMIN_PASSWORD:-}
+      # First start only: a code the set-up page asks for before creating the admin (mk-nas sets it). Empty = none.
+      DRIVE_SETUP_TOKEN: ${DRIVE_SETUP_TOKEN:-}
       # Cloudflare Access, when the drive is published through a tunnel.
       DRIVE_ACCESS_TEAM: ${DRIVE_ACCESS_TEAM:-}
       DRIVE_ACCESS_AUD: ${DRIVE_ACCESS_AUD:-}

@@ -151,3 +151,37 @@ test("the share dies with the owner's grant and with removal", async () => {
   );
   assert.equal((await app.inject({ url: '/api/ls?path=Docs/family', headers: { cookie: anna } })).statusCode, 404);
 });
+
+test('sharing again does not take over someone else’s share; an admin may replace it; the owner may change the level', async () => {
+  const people = (await app.inject({ url: '/api/users', headers: { cookie: admin } })).json() as User[];
+  const bobRow = people.find((u) => u.email === 'bob@example.com')!;
+  assert.equal((await app.inject(json('PATCH', `/api/users/${bobRow.id}`, { grants: { Docs: 'read' } }, admin))).statusCode, 200);
+  const mine = async () => (await app.inject({ url: '/api/shared-with-me', headers: { cookie: anna } })).json() as UserShare[];
+  const onFamily = async () => (await mine()).find((s) => s.path === 'Docs/family')!;
+
+  assert.equal((await app.inject(json('POST', '/api/user-shares', { path: 'Docs/family', email: 'anna@example.com', level: 'write' }, admin))).statusCode, 201);
+  // Bob reads Docs, so he may share it read-only, but not over the admin's write share to Anna
+  const takeover = await app.inject(json('POST', '/api/user-shares', { path: 'Docs/family', email: 'anna@example.com', level: 'read' }, bob));
+  assert.equal(takeover.statusCode, 409, takeover.body);
+  const kept = await onFamily();
+  assert.equal(kept.owner.email, 'alex@example.com');
+  assert.equal(kept.level, 'write');
+
+  // the owner changes their own share's level
+  assert.equal((await app.inject(json('POST', '/api/user-shares', { path: 'Docs/family', email: 'anna@example.com', level: 'read' }, admin))).statusCode, 201);
+  assert.equal((await onFamily()).level, 'read');
+
+  // Bob's own share to Anna, then an admin replaces it; the audit says whose it was
+  assert.equal((await app.inject(json('POST', '/api/user-shares', { path: 'Docs/family/photos', email: 'anna@example.com' }, bob))).statusCode, 201);
+  assert.equal(
+    (await app.inject(json('POST', '/api/user-shares', { path: 'Docs/family/photos', email: 'anna@example.com', level: 'write' }, admin))).statusCode,
+    201,
+  );
+  const photos = (await mine()).find((s) => s.path === 'Docs/family/photos')!;
+  assert.equal(photos.owner.email, 'alex@example.com');
+  assert.equal(photos.level, 'write');
+  const audit = (await app.inject({ url: '/api/audit', headers: { cookie: admin } })).json() as { action: string; path: string; detail: string }[];
+  const entry = audit.find((a) => a.action === 'share.user' && a.path === 'Docs/family/photos' && String(a.detail).includes('replaced'));
+  assert.ok(entry, 'the replacement is audited');
+  assert.match(String(entry.detail), /bob@example\.com/);
+});

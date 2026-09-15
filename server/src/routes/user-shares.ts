@@ -12,7 +12,7 @@ import type { Locations } from '../locations.ts';
 import { grantLevel, type Users } from '../users.ts';
 import { parseDrivePath } from '../paths.ts';
 import { mimeOf } from '../mime.ts';
-import { badRequest, notFound } from '../errors.ts';
+import { badRequest, HttpError, notFound } from '../errors.ts';
 import type { AccessLevel, User, UserShare } from '../../../shared/types.ts';
 
 interface Row {
@@ -58,11 +58,24 @@ export function registerUserShareRoutes(app: FastifyInstance, access: Access, lo
     if (!user || user.disabled) throw badRequest(`no account for ${email || 'that email'} — an admin can add one under People`);
     if (user.id === req.identity.id) throw badRequest('that is you');
     if (locations.effective(loc, grantLevel(user, loc.cfg.name)) === 'write') throw badRequest(`${user.name} can already edit everything in ${loc.cfg.name}`);
+    // one share per person and path: someone else's is not taken over (and downgraded) by sharing it again; an admin may replace it
+    const existing = (db.prepare('SELECT * FROM user_shares WHERE user_id = ? AND path = ?').get(user.id, dp.path) as unknown as Row | undefined) ?? null;
+    const replaced = existing && existing.owner_id !== req.identity.id ? existing : null;
+    if (replaced && req.identity.role !== 'admin')
+      throw new HttpError(409, `someone else already shares this with ${user.name}; only they or an admin can change it`);
     db.prepare(
       'INSERT INTO user_shares (owner_id, user_id, path, level, created_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (user_id, path) DO UPDATE SET owner_id = excluded.owner_id, level = excluded.level, created_at = excluded.created_at',
     ).run(req.identity.id, user.id, dp.path, level, Date.now());
     const row = db.prepare('SELECT * FROM user_shares WHERE user_id = ? AND path = ?').get(user.id, dp.path) as unknown as Row;
-    users.audit({ userId: req.identity.id, email: req.identity.email, action: 'share.user', path: dp.path, detail: { with: user.email, level } });
+    users.audit({
+      userId: req.identity.id,
+      email: req.identity.email,
+      action: 'share.user',
+      path: dp.path,
+      detail: replaced
+        ? { with: user.email, level, replaced: { owner: users.get(replaced.owner_id)?.email ?? '?', level: replaced.level } }
+        : { with: user.email, level },
+    });
     reply.code(201);
     return toShare(row);
   });

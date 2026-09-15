@@ -65,6 +65,22 @@ export function origin(req: FastifyRequest): string {
   return `${isSecure(req) ? 'https' : 'http'}://${req.headers.host}`;
 }
 
+const PROBE = 'http://x.invalid';
+
+/**
+ * A path on this drive to send the browser to after signing in, else null. Browsers drop tabs and newlines from a URL
+ * and read `\` as `/`, so `/\t/evil.example` becomes `//evil.example`, another site: no whitespace, control characters
+ * or backslashes at all, and what is left must resolve on this origin (whatever the library's own check lets through).
+ */
+export function safeReturnPath(raw: unknown): string | null {
+  if (typeof raw !== 'string' || !raw.startsWith('/') || /[\x00-\x20\x7f\\]/.test(raw)) return null;
+  try {
+    return new URL(raw, PROBE).origin === PROBE ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
 function toLogin(reply: FastifyReply, reason: string): FastifyReply {
   return reply.header('Cache-Control', 'no-store').redirect(`/login?reason=${encodeURIComponent(reason)}`, 303);
 }
@@ -176,6 +192,9 @@ export function registerSso(app: FastifyInstance, cfg: Config, users: Users, sso
   app.addHook('onRequest', async (req, reply) => {
     const path = routePath(req);
     if (path !== '/auth/login' && path !== '/auth/callback') return;
+    // an unsafe `next` becomes the home page before the library sees it
+    const query = req.query as Record<string, unknown> | undefined;
+    if (path === '/auth/login' && query?.next !== undefined && safeReturnPath(query.next) === null) query.next = '/';
     const conf = sso.conf;
     if (!conf) return toLogin(reply, 'single sign-on is not set up on this drive');
     if (path === '/auth/callback') {
@@ -219,7 +238,7 @@ export function registerSso(app: FastifyInstance, cfg: Config, users: Users, sso
       users.markLogin(user.id);
       setSessionCookie(req, reply, session.id, cfg.sessionDays * 86_400);
       users.audit({ userId: user.id, email: user.email, action: 'login', detail: `sso (${identity.issuer})` });
-      return reply.redirect(next, 303);
+      return reply.redirect(safeReturnPath(next) ?? '/', 303);
     },
     onError: async (error, { reply }) => toLogin(reply, `sign-in failed: ${error.message}`),
   });

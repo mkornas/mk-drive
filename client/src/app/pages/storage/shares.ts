@@ -67,8 +67,13 @@ import { ShareDialog, type ShareDialogData } from './share-dialog';
                   <div class="way">
                     <mk-tag size="sm" tone="primary">NFS</mk-tag>
                     <code>{{ lan(d.version.hostname) }}:{{ s.mountpoint }}</code>
-                    <span class="muted small">for {{ s.nfsClients.length ? s.nfsClients.join(', ') : 'the private networks' }}</span>
+                    @if (s.nfsClients.length) {
+                      <span class="muted small">for {{ s.nfsClients.join(', ') }}</span>
+                    }
                   </div>
+                  @if (!s.nfsClients.length) {
+                    <p class="warn">No hosts allowed yet — change the share to add them</p>
+                  }
                 }
               </div>
             </li>

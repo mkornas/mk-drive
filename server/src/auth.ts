@@ -26,6 +26,8 @@ declare module 'fastify' {
 }
 
 export const SESSION_COOKIE = 'mkdrive_session';
+/** The name on HTTPS: a browser takes a `__Host-` cookie only Secure, Path=/ and without Domain, so a sibling subdomain cannot plant or overwrite it. */
+export const SECURE_SESSION_COOKIE = `__Host-${SESSION_COOKIE}`;
 
 /** App passwords are long random secrets, so a plain hash is enough to store and look them up. */
 export function hashToken(secret: string): string {
@@ -254,7 +256,7 @@ export function createAuth(cfg: Config, users: Users): Auth {
         }
       }
     }
-    const sid = dav ? undefined : cookie(req, SESSION_COOKIE);
+    const sid = dav ? undefined : sessionCookie(req);
     if (sid) {
       const s = users.session(sid);
       if (s) {
@@ -331,14 +333,26 @@ export function registerAuth(app: FastifyInstance, auth: Auth): void {
   });
 }
 
+/** The session id this request carries: `__Host-` on HTTPS (or the plain name from before an upgrade, until it is set again), the plain name on http. */
+function sessionCookie(req: FastifyRequest): string | undefined {
+  return (isSecure(req) ? cookie(req, SECURE_SESSION_COOKIE) : undefined) ?? cookie(req, SESSION_COOKIE);
+}
+
 export function setSessionCookie(req: FastifyRequest, reply: FastifyReply, sessionId: string, maxAgeSeconds: number): void {
-  const attrs = [`${SESSION_COOKIE}=${encodeURIComponent(sessionId)}`, 'Path=/', 'HttpOnly', 'SameSite=Lax', `Max-Age=${maxAgeSeconds}`];
-  if (isSecure(req)) attrs.push('Secure');
+  const secure = isSecure(req);
+  const name = secure ? SECURE_SESSION_COOKIE : SESSION_COOKIE;
+  const attrs = [`${name}=${encodeURIComponent(sessionId)}`, 'Path=/', 'HttpOnly', 'SameSite=Lax', `Max-Age=${maxAgeSeconds}`];
+  if (secure) attrs.push('Secure');
   reply.header('Set-Cookie', attrs.join('; '));
+  // on HTTPS the plain name from before the prefix goes away
+  if (secure && cookie(req, SESSION_COOKIE) !== undefined) reply.header('Set-Cookie', `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure`);
 }
 
 export function clearSessionCookie(req: FastifyRequest, reply: FastifyReply): void {
-  const attrs = [`${SESSION_COOKIE}=`, 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0'];
-  if (isSecure(req)) attrs.push('Secure');
-  reply.header('Set-Cookie', attrs.join('; '));
+  const secure = isSecure(req);
+  for (const name of secure ? [SECURE_SESSION_COOKIE, SESSION_COOKIE] : [SESSION_COOKIE]) {
+    const attrs = [`${name}=`, 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=0'];
+    if (secure) attrs.push('Secure');
+    reply.header('Set-Cookie', attrs.join('; '));
+  }
 }

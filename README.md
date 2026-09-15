@@ -227,6 +227,7 @@ the drive notices the snapshot directory on its own.
 | `DRIVE_LOCATIONS_DIR` | `/locations` | Where discovery looks |
 | `DRIVE_DATA_DIR` | `/data` | App state (disposable) |
 | `DRIVE_ADMIN_EMAIL` / `DRIVE_ADMIN_PASSWORD` | — | Create the admin on first start instead of the set-up page |
+| `DRIVE_SETUP_TOKEN` | — | A code the set-up page asks for before it creates the first admin, so a fresh drive on the network does not belong to whoever opens it first (mk-nas generates one and shows it on the box). Wrong codes are throttled. Empty = no code asked |
 | `DRIVE_DB` | `<data dir>/mk-drive.db` | The SQLite file (users, sessions, grants, audit) |
 | `DRIVE_SESSION_DAYS` | `30` | Session lifetime |
 | `DRIVE_ACCESS_TEAM` / `DRIVE_ACCESS_AUD` | — | Cloudflare Access team and application audience |

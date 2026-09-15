@@ -57,6 +57,7 @@ import type {
   MarkedEntry,
   Meta,
   OpResult,
+  PasswordChanged,
   Role,
   SearchResult,
   Session,
@@ -94,8 +95,8 @@ export class ApiService {
   meta(): Promise<Meta> {
     return this.get('/api/meta');
   }
-  setup(email: string, name: string, password: string): Promise<Identity> {
-    return this.post('/api/setup', { email, name, password });
+  setup(email: string, name: string, password: string, setupCode?: string): Promise<Identity> {
+    return this.post('/api/setup', { email, name, password, setupCode });
   }
   login(email: string, password: string): Promise<Identity> {
     return this.post('/api/login', { email, password });
@@ -124,8 +125,8 @@ export class ApiService {
   rename(name: string): Promise<Identity> {
     return this.patch('/api/account', { name });
   }
-  changePassword(current: string, password: string): Promise<unknown> {
-    return this.post('/api/account/password', { current, password });
+  changePassword(current: string, password: string, revokeAppPasswords: boolean): Promise<PasswordChanged> {
+    return this.post('/api/account/password', { current, password, revokeAppPasswords });
   }
 
   // ---- admin ----

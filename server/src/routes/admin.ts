@@ -78,16 +78,19 @@ export function registerAdminRoutes(app: FastifyInstance, users: Users, location
       if (nas && smbName && patch.disabled && !existing.disabled)
         await revokeSmbAccess(nas, users, smbName, 'disabled', { userId: req.identity.id, email: req.identity.email });
       if (b.grants !== undefined) users.setGrants(id, parseGrants(b.grants, locations.names));
+      let appPasswordsRevoked: number | undefined;
       if (b.password !== undefined) {
         if (typeof b.password !== 'string' || b.password.length < PASSWORD_MIN) throw badRequest(`password must be at least ${PASSWORD_MIN} characters`);
         await users.setPassword(id, b.password);
         users.deleteOtherSessions(id, undefined);
+        // a reset is for an account someone else may hold: its apps (WebDAV, the iOS app) sign in again too
+        appPasswordsRevoked = users.deleteAppPasswordsOf(id);
       }
       users.audit({
         userId: req.identity.id,
         email: req.identity.email,
         action: 'user.update',
-        detail: { id, ...patch, grants: b.grants !== undefined, password: b.password !== undefined },
+        detail: { id, ...patch, grants: b.grants !== undefined, password: b.password !== undefined, appPasswordsRevoked },
       });
       return users.get(id)!;
     },

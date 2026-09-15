@@ -8,6 +8,7 @@ import { SignJWT, exportJWK, generateKeyPair } from 'jose';
 import { createHash } from 'node:crypto';
 import { config, type Config } from '../src/config.ts';
 import { createApp } from '../src/app.ts';
+import { safeReturnPath } from '../src/sso.ts';
 import type { Meta } from '../../shared/types.ts';
 
 /** A tiny OpenID provider that signs anyone in as the email given in `who`. */
@@ -227,6 +228,32 @@ test('an unverified email, or one with non-ASCII characters, is refused even whe
     who.email = 'Alex@Example.com';
     delete who.verified;
   }
+});
+
+test('`next` never leaves the drive: a tab, a backslash, // or another origin lands on the home page', async () => {
+  const landing = async (next: string) => {
+    const login = await app.inject({ url: `/auth/login?next=${encodeURIComponent(next)}`, headers: { host: 'drive.test' } });
+    assert.equal(login.statusCode, 302, next);
+    const transient = String(login.headers['set-cookie']).split(';')[0];
+    // the drive's own guard, before the library: what the login cookie remembers is already the home page
+    const parked = JSON.parse(Buffer.from(decodeURIComponent(transient.split('=')[1]).split('.')[0], 'base64url').toString()).next;
+    const back = new URL((await fetch(login.headers.location as string, { redirect: 'manual' })).headers.get('location')!);
+    const cb = await app.inject({ url: back.pathname + back.search, headers: { host: 'drive.test', cookie: transient } });
+    assert.equal(cb.statusCode, 303, next);
+    assert.equal(parked, cb.headers.location, next);
+    return cb.headers.location;
+  };
+  // browsers drop the tab and read `/\t/evil.example` as //evil.example
+  for (const bad of ['/\t/evil.example', '/\n/evil.example', '//evil.example', '/\\evil.example', 'https://evil.example', '/ /evil.example'])
+    assert.equal(await landing(bad), '/', JSON.stringify(bad));
+  assert.equal(await landing('/d/Docs'), '/d/Docs');
+  assert.equal(await landing('/'), '/');
+});
+
+test('safeReturnPath', () => {
+  for (const bad of ['/\t/evil.example', '//evil.example', '/\\evil.example', 'https://evil.example', 'd/Docs', '', '/a\x7f', undefined, ['/d/Docs']])
+    assert.equal(safeReturnPath(bad), null, JSON.stringify(bad));
+  for (const good of ['/', '/d/Docs', '/d/Docs/a%20b?x=1#y']) assert.equal(safeReturnPath(good), good);
 });
 
 test('Settings → Sign-in: an admin sets the provider, checked first, secret never shown, live without a restart; off again; env and a password-less drive refuse', async () => {

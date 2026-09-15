@@ -4,7 +4,7 @@ import fastifyStatic from '@fastify/static';
 import { existsSync } from 'node:fs';
 import type { Config } from './config.ts';
 import { createAuth, registerAuth, routePath } from './auth.ts';
-import { SsoProvider, registerSso, resolveSso } from './sso.ts';
+import { SsoProvider, origin, registerSso, resolveSso } from './sso.ts';
 import { Locations } from './locations.ts';
 import { openDb } from './db.ts';
 import { Users } from './users.ts';
@@ -102,13 +102,16 @@ export async function createApp(cfg: Config, opts: { logger?: boolean } = {}): P
   if (pdfText) app.log.info(`search inside PDFs: ${pdfText}`);
   else app.log.info(`search inside PDFs off (no ${cfg.pdftotext}; set DRIVE_PDFTOTEXT or install poppler)`);
 
-  // Cross-site request forgery: the session cookie is SameSite=Lax, so a cross-site
-  // POST cannot carry it; belt and braces, refuse anything a browser marks cross-site
-  // and anything that is not JSON (an HTML form cannot send JSON without CORS).
+  // Cross-site request forgery. SameSite=Lax keeps the cookie off cross-site POSTs, but not off same-site ones: another
+  // port on this host or a sibling subdomain is "same-site" and would carry it. So a change is taken only from the
+  // drive's own pages (`same-origin`) or the user's own navigation (`none`). Browsers send Sec-Fetch-Site on HTTPS and
+  // localhost only; without it (the plain-http LAN, the iOS app, curl, WebDAV clients) an Origin, when there is one,
+  // must be this drive's. And anything with a body must be JSON (an HTML form cannot send JSON without CORS).
   app.addHook('onRequest', async (req, reply) => {
     if (!MUTATING.has(req.method) || !(routePath(req) ?? '/api/').startsWith('/api/')) return;
     const site = req.headers['sec-fetch-site'];
-    if (site === 'cross-site') return reply.code(403).send({ ok: false, message: 'cross-site request refused' });
+    const foreign = site !== undefined ? site !== 'same-origin' && site !== 'none' : req.headers.origin !== undefined && req.headers.origin !== origin(req);
+    if (foreign) return reply.code(403).send({ ok: false, message: 'cross-site request refused' });
     const type = (req.headers['content-type'] ?? '').split(';')[0].trim();
     const len = Number(req.headers['content-length'] ?? 0);
     if (len > 0 && type !== 'application/json' && type !== 'application/octet-stream') return reply.code(415).send({ ok: false, message: 'send JSON' });

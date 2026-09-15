@@ -194,6 +194,11 @@ export class Users {
     return this.db.prepare('DELETE FROM app_passwords WHERE id = ? AND user_id = ?').run(id, userId).changes > 0;
   }
 
+  /** Every app password of the account (after a password change or reset); how many there were. */
+  deleteAppPasswordsOf(userId: number): number {
+    return Number(this.db.prepare('DELETE FROM app_passwords WHERE user_id = ?').run(userId).changes);
+  }
+
   setGrants(userId: number, grants: Record<string, AccessLevel>): void {
     const del = this.db.prepare('DELETE FROM grants WHERE user_id = ?');
     const ins = this.db.prepare('INSERT INTO grants (user_id, location, level) VALUES (?, ?, ?)');

@@ -112,3 +112,39 @@ test('revoked, and throttled after repeated bad secrets', async () => {
   assert.match(blocked.json().message, /too many attempts/);
   assert.equal((await app.inject({ url: '/api/me', headers: bearer(fresh.secret), remoteAddress: '203.0.113.10' })).statusCode, 200);
 });
+
+test('a password change revokes the app passwords unless asked to keep them; an admin reset always does', async () => {
+  const anna = (
+    await app.inject(json('POST', '/api/users', { email: 'anna@example.com', name: 'Anna', password: PW, grants: { Docs: 'read' } }, { cookie: admin }))
+  ).json();
+  const signIn = async (password: string) =>
+    String((await app.inject(json('POST', '/api/login', { email: 'anna@example.com', password }, {}))).headers['set-cookie']).split(';')[0];
+  const mint = async (cookie: string) => (await app.inject(json('POST', '/api/app-passwords', { name: 'phone' }, { cookie }))).json() as AppPasswordCreated;
+  // a refused secret throttles its address, so each check comes from its own
+  let from = 20;
+  const works = async (secret: string) =>
+    (await app.inject({ url: '/api/me', headers: bearer(secret), remoteAddress: `198.51.100.${from++}` })).statusCode === 200;
+
+  // own change, default: the apps go with the other sessions
+  let cookie = await signIn(PW);
+  let token = await mint(cookie);
+  const changed = await app.inject(json('POST', '/api/account/password', { current: PW, password: 'second long password' }, { cookie }));
+  assert.equal(changed.statusCode, 200, changed.body);
+  assert.deepEqual(changed.json(), { ok: true, appPasswordsRevoked: 1 });
+  assert.equal(await works(token.secret), false, 'the app password is gone');
+
+  // own change, keeping them
+  token = await mint(cookie);
+  const kept = await app.inject(
+    json('POST', '/api/account/password', { current: 'second long password', password: 'third long password', revokeAppPasswords: false }, { cookie }),
+  );
+  assert.deepEqual(kept.json(), { ok: true, appPasswordsRevoked: 0 });
+  assert.equal(await works(token.secret), true, 'kept on request');
+
+  // an admin reset: whoever held the account loses its apps too
+  const reset = await app.inject(json('PATCH', `/api/users/${anna.id}`, { password: 'reset by the admin' }, { cookie: admin }));
+  assert.equal(reset.statusCode, 200, reset.body);
+  assert.equal(await works(token.secret), false, 'revoked by the reset');
+  cookie = await signIn('reset by the admin');
+  assert.deepEqual((await app.inject({ url: '/api/app-passwords', headers: { cookie } })).json(), []);
+});

@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { MkButton } from '@mk-kit/ui/button';
+import { MkCheckbox } from '@mk-kit/ui/checkbox';
 import { MkFormField, MkInput, MkPasswordInput } from '@mk-kit/ui/forms';
 import { MkToastService } from '@mk-kit/ui/feedback';
 import { MkCard, MkDescItem, MkDescriptionList } from '@mk-kit/ui/data';
@@ -12,7 +13,7 @@ import { SettingsShell } from './shell';
 @Component({
   selector: 'app-account',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [SettingsShell, MkButton, MkFormField, MkInput, MkPasswordInput, MkCard, MkDescriptionList, MkDescItem],
+  imports: [SettingsShell, MkButton, MkCheckbox, MkFormField, MkInput, MkPasswordInput, MkCard, MkDescriptionList, MkDescItem],
   template: `
     <app-settings heading="Account" description="Who you are on this drive.">
       <mk-card class="block">
@@ -113,6 +114,7 @@ import { SettingsShell } from './shell';
               <mk-form-field label="New password" hint="At least 10 characters.">
                 <mk-password-input [(value)]="next" autocomplete="new-password" showStrength [minLength]="10" />
               </mk-form-field>
+              <mk-checkbox [(checked)]="revokeApps">Also sign out apps (app passwords)</mk-checkbox>
               <div><button mkButton type="submit" [loading]="savingPw()" [disabled]="!current() || next().length < 10">Change password</button></div>
             </form>
           </mk-card>
@@ -203,6 +205,8 @@ export class AccountPage {
   protected readonly savingSmb = signal(false);
   protected readonly next = signal('');
   protected readonly savingPw = signal(false);
+  /** Changing the password revokes the app passwords too unless unticked (WebDAV, the iOS app sign in again). */
+  protected readonly revokeApps = signal(true);
   protected readonly pwError = signal<string | null>(null);
 
   constructor() {
@@ -251,10 +255,12 @@ export class AccountPage {
     this.savingPw.set(true);
     this.pwError.set(null);
     try {
-      await this.api.changePassword(this.current(), this.next());
+      const r = await this.api.changePassword(this.current(), this.next(), this.revokeApps());
       this.current.set('');
       this.next.set('');
-      this.toast.success('Password changed');
+      const n = r.appPasswordsRevoked;
+      const apps = !this.revokeApps() ? 'app passwords kept' : n ? `${n} app password${n === 1 ? '' : 's'} revoked` : 'no app passwords to revoke';
+      this.toast.success(`Password changed: other devices signed out, ${apps}`);
     } catch (e) {
       this.pwError.set(errorMessage(e));
     } finally {

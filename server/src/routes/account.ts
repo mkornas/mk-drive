@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { NAS_CONTRACT, type NasClient } from '../nas.ts';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Config } from '../config.ts';
@@ -5,7 +6,7 @@ import { type Auth, clearSessionCookie, clientIp, passwordLoginAllowed, setSessi
 import { PASSWORD_MIN, verifyPassword, type Users } from '../users.ts';
 import { badRequest, forbidden, HttpError } from '../errors.ts';
 import { sessionOnly } from './app-passwords.ts';
-import type { Health, Identity, Meta, Session, SignOutResult } from '../../../shared/types.ts';
+import type { Health, Identity, Meta, PasswordChanged, Session, SignOutResult } from '../../../shared/types.ts';
 import { origin, type SsoProvider } from '../sso.ts';
 import type { Settings } from '../settings.ts';
 
@@ -59,6 +60,7 @@ export function registerAccountRoutes(
     name: settings?.get('name') ?? undefined,
     me: req.identity ?? null,
     setupRequired: users.count() === 0,
+    setupCodeRequired: (users.count() === 0 && !!cfg.setupToken) || undefined,
     reason: req.identity ? undefined : req.authReason,
     demo: cfg.demo || undefined,
     sso: sso?.conf ? { name: sso.conf.name } : undefined,
@@ -86,8 +88,33 @@ export function registerAccountRoutes(
 
   /** A setup in flight: creating the account awaits the password hash, so a second request must not pass the check meanwhile. */
   let settingUp = false;
-  app.post<{ Body: { email?: unknown; name?: unknown; password?: unknown } }>('/api/setup', async (req, reply): Promise<Identity> => {
+  // both sides hashed first: equal-length buffers for timingSafeEqual, whatever was sent
+  const digest = (s: string) => createHash('sha256').update(s).digest();
+  app.post<{ Body: { email?: unknown; name?: unknown; password?: unknown; setupCode?: unknown } }>('/api/setup', async (req, reply): Promise<Identity> => {
     if (users.count() > 0 || settingUp) throw forbidden('setup is already done');
+    if (cfg.setupToken) {
+      // a fresh box on the LAN must not become whoever reaches the page first: the code is shown on the box itself
+      const keys = [`setup:${clientIp(req, cfg.trustedProxies)}`];
+      const wait = auth.throttle.begin(keys);
+      if (wait > 0) {
+        reply.header('Retry-After', String(Math.ceil(wait / 1000)));
+        throw new HttpError(429, `too many attempts, wait ${Math.ceil(wait / 1000)} s`);
+      }
+      // typed from a screen: case, spaces and dashes do not matter
+      const normal = (s: string) => s.toUpperCase().replace(/[\s-]/g, '');
+      const code = typeof req.body?.setupCode === 'string' ? normal(req.body.setupCode) : '';
+      const right = code !== '' && timingSafeEqual(digest(code), digest(normal(cfg.setupToken)));
+      auth.throttle.end(keys);
+      if (!right) {
+        auth.throttle.failed(keys[0]);
+        throw forbidden(
+          code
+            ? 'that setup code is wrong — check it on the box’s screen, or run `sudo mk-nas setup-code` over ssh'
+            : 'this drive needs its setup code: it is shown on the box’s screen after installing, or run `sudo mk-nas setup-code` over ssh',
+        );
+      }
+      auth.throttle.succeeded(keys[0]);
+    }
     const email = checkEmail(req.body?.email);
     const name = checkName(req.body?.name);
     const password = checkPassword(req.body?.password);
@@ -165,18 +192,24 @@ export function registerAccountRoutes(
     return { ...req.identity, name };
   });
 
-  app.post<{ Body: { current?: unknown; password?: unknown } }>('/api/account/password', async (req) => {
-    sessionOnly(req);
-    const user = users.get(req.identity.id);
-    if (!user) throw forbidden('no account');
-    const next = checkPassword(req.body?.password);
-    const current = typeof req.body?.current === 'string' ? req.body.current : '';
-    if (!(await users.authenticate(user.email, current))) throw new HttpError(401, 'current password is wrong');
-    await users.setPassword(user.id, next);
-    users.deleteOtherSessions(user.id, req.sessionId);
-    users.audit({ userId: user.id, email: user.email, action: 'password.change' });
-    return { ok: true };
-  });
+  app.post<{ Body: { current?: unknown; password?: unknown; revokeAppPasswords?: unknown } }>(
+    '/api/account/password',
+    async (req): Promise<PasswordChanged> => {
+      sessionOnly(req);
+      const user = users.get(req.identity.id);
+      if (!user) throw forbidden('no account');
+      const next = checkPassword(req.body?.password);
+      const current = typeof req.body?.current === 'string' ? req.body.current : '';
+      // a changed password usually means a leaked one: the apps go too unless the caller says to keep them
+      const revoke = req.body?.revokeAppPasswords !== false;
+      if (!(await users.authenticate(user.email, current))) throw new HttpError(401, 'current password is wrong');
+      await users.setPassword(user.id, next);
+      users.deleteOtherSessions(user.id, req.sessionId);
+      const appPasswordsRevoked = revoke ? users.deleteAppPasswordsOf(user.id) : 0;
+      users.audit({ userId: user.id, email: user.email, action: 'password.change', detail: { appPasswordsRevoked } });
+      return { ok: true, appPasswordsRevoked };
+    },
+  );
 }
 
 export { verifyPassword };

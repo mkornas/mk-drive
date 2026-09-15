@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { MkButton } from '@mk-kit/ui/button';
 import { MkFormField, MkInput, MkPasswordInput } from '@mk-kit/ui/forms';
@@ -14,6 +14,11 @@ import { AuthCard } from '../shared/auth-card';
   template: `
     <app-auth-card title="Welcome" lead="This drive has no accounts yet. Create yours — it will be the admin account that invites everyone else.">
       <form (submit)="submit($event)" class="form">
+        @if (codeRequired()) {
+          <mk-form-field label="Setup code" hint="Shown on the box's screen after installing, or run \`sudo mk-nas setup-code\` over ssh.">
+            <input mkInput autocomplete="one-time-code" spellcheck="false" [value]="code()" (input)="code.set($any($event.target).value)" required />
+          </mk-form-field>
+        }
         <mk-form-field label="Your name">
           <input mkInput autocomplete="name" [value]="name()" (input)="name.set($any($event.target).value)" placeholder="Alex" required />
         </mk-form-field>
@@ -23,7 +28,15 @@ import { AuthCard } from '../shared/auth-card';
         <mk-form-field label="Password" hint="At least 10 characters." [error]="error()">
           <mk-password-input [(value)]="password" autocomplete="new-password" showStrength [minLength]="10" />
         </mk-form-field>
-        <button mkButton type="submit" fullWidth [loading]="busy()" [disabled]="!name() || !email() || password().length < 10">Create the admin account</button>
+        <button
+          mkButton
+          type="submit"
+          fullWidth
+          [loading]="busy()"
+          [disabled]="!name() || !email() || password().length < 10 || (codeRequired() && !code().trim())"
+        >
+          Create the admin account
+        </button>
       </form>
     </app-auth-card>
   `,
@@ -43,6 +56,9 @@ export class SetupPage {
   protected readonly name = signal('');
   protected readonly email = signal('');
   protected readonly password = signal('');
+  protected readonly code = signal('');
+  /** The box set a setup code (mk-nas shows it on its screen): whoever reaches the page first must not become the admin. */
+  protected readonly codeRequired = computed(() => !!this.drive.meta()?.setupCodeRequired);
   protected readonly busy = signal(false);
   protected readonly error = signal<string | null>(null);
 
@@ -57,7 +73,7 @@ export class SetupPage {
     this.busy.set(true);
     this.error.set(null);
     try {
-      const id = await this.api.setup(this.email(), this.name(), this.password());
+      const id = await this.api.setup(this.email(), this.name(), this.password(), this.codeRequired() ? this.code().trim() : undefined);
       await this.drive.signedInAs(id);
       await this.router.navigateByUrl('/');
     } catch (e) {

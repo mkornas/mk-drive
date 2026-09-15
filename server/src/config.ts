@@ -113,6 +113,8 @@ export const config = {
   /** Headless bootstrap: created as the admin when no user exists yet (else the setup page does it). */
   adminEmail: env('DRIVE_ADMIN_EMAIL', ''),
   adminPassword: env('DRIVE_ADMIN_PASSWORD', ''),
+  /** A code the set-up page asks for before it creates the first admin (mk-nas shows it on the box). Empty = no code asked. */
+  setupToken: env('DRIVE_SETUP_TOKEN', ''),
 
   /** Cloudflare Access: team name (or full <team>.cloudflareaccess.com) and the application audience tag. */
   accessTeam: env('DRIVE_ACCESS_TEAM', ''),

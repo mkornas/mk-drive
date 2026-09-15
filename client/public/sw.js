@@ -6,9 +6,24 @@
  */
 const INBOX = 'mk-drive-share-inbox';
 
+/*
+ * Only the share sheet's own launch of the installed app is taken: a navigation the browser marks `none` (no page
+ * started it) or `same-origin`. Any site could otherwise post a form to /share and park files in the inbox, offered
+ * for upload on the next visit. Where the worker does not see Sec-Fetch-Site (browsers may add it below the worker),
+ * the referrer decides: none, or this origin. A page can hide its referrer, so that fallback is weaker; what is
+ * parked is still only uploaded once the user picks a folder and presses Upload. Anything refused goes to the
+ * network, which has no POST /share.
+ */
+function fromShareSheet(request) {
+  if (request.mode !== 'navigate') return false;
+  const site = request.headers.get('sec-fetch-site');
+  if (site !== null) return site === 'none' || site === 'same-origin';
+  return !request.referrer || request.referrer === 'about:client' || new URL(request.referrer).origin === self.location.origin;
+}
+
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
-  if (event.request.method !== 'POST' || url.pathname !== '/share') return;
+  if (event.request.method !== 'POST' || url.pathname !== '/share' || !fromShareSheet(event.request)) return;
   event.respondWith(
     (async () => {
       try {
