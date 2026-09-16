@@ -15,6 +15,7 @@ import type { Locations } from '../locations.ts';
 import type { NasClient } from '../nas.ts';
 import type { Users } from '../users.ts';
 import type {
+  Alerts,
   ConfigBackup,
   Dataset,
   DatasetCreateArgs,
@@ -132,6 +133,20 @@ export function registerNasRoutes(app: FastifyInstance, nas: NasClient, location
   app.get('/api/nas/health', async (req): Promise<Health> => {
     admin(req);
     return nas.call('health');
+  });
+  /** What is wrong with the box right now, as the agent sees it (mk-nas docs/alerts.md). */
+  app.get('/api/nas/alerts', async (req): Promise<Alerts> => {
+    admin(req);
+    return nas.call('alerts');
+  });
+  /** "Seen it": the alert stays open while the condition lasts, but stops being pushed. */
+  app.post<{ Body: { key?: unknown } }>('/api/nas/alerts/ack', async (req): Promise<Alerts> => {
+    admin(req);
+    const key = typeof req.body?.key === 'string' ? req.body.key : '';
+    if (!key) throw badRequest('which alert?');
+    const out = await nas.call('alert.ack', { key });
+    audit(req, 'nas.alert.ack', { key });
+    return out;
   });
   app.get('/api/nas/system', async (req): Promise<System> => {
     admin(req);

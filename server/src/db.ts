@@ -103,6 +103,16 @@ const SCHEMA = [
     last_used_at INTEGER,
     last_ip TEXT NOT NULL DEFAULT ''
   )`,
+  `CREATE TABLE IF NOT EXISTS push_subs (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    endpoint TEXT NOT NULL UNIQUE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    name TEXT NOT NULL,
+    added_at INTEGER NOT NULL,
+    last_sent_at INTEGER
+  )`,
   `CREATE TABLE IF NOT EXISTS user_shares (
     id INTEGER PRIMARY KEY,
     owner_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

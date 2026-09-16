@@ -252,6 +252,8 @@ the drive notices the snapshot directory on its own.
 | `DRIVE_FFMPEG` | `ffmpeg` | The ffmpeg binary for video poster frames; missing = no video thumbnails (the image ships it) |
 | `DRIVE_PDFTOCAIRO` | `pdftocairo` | poppler's pdftocairo for PDF first-page thumbnails; missing = no PDF thumbnails (the image ships it) |
 | `DRIVE_PDFTOTEXT` | `pdftotext` | poppler's pdftotext so "search inside files" reads PDFs too; missing = text files only (the image ships it) |
+| `DRIVE_VAPID_SUBJECT` | `mailto:admin@localhost` | Web push: how a push service can reach you about this drive's requests (a `mailto:` or a URL) |
+| `DRIVE_VAPID_PUBLIC` / `DRIVE_VAPID_PRIVATE` | made once | Web push signing keys. Left unset, the drive makes a pair on first use and keeps it in its database — set your own only if you want to carry subscriptions between installs; changing them makes every existing subscription useless |
 | `DRIVE_NAS_SOCKET` | — | NAS mode: the [mk-nas](https://github.com/mkornas/mk-nas) agent's socket mounted in; admins get the Storage section |
 | `DRIVE_NAS_MONITOR_TOKEN` | — | NAS mode: a token of 32+ characters that lets a monitor (mk-dashboard, a script) read `GET /api/nas/monitor` with `Authorization: Bearer <token>` — the pools', disks' and agent's health, nothing else; it opens no other route. Empty = no such route |
 | `DRIVE_STAT_CONCURRENCY` | `32` | Parallel `stat()` calls per listing (network filesystems like this bounded) |

@@ -18,6 +18,11 @@ export const routes: Routes = [
       { path: '', redirectTo: 'account', pathMatch: 'full' },
       { path: 'account', loadComponent: () => import('./pages/settings/account').then((m) => m.AccountPage), title: 'Account · mk-drive' },
       { path: 'devices', loadComponent: () => import('./pages/settings/devices').then((m) => m.DevicesPage), title: 'Devices · mk-drive' },
+      {
+        path: 'notifications',
+        loadComponent: () => import('./pages/settings/notifications').then((m) => m.NotificationsPage),
+        title: 'Notifications · mk-drive',
+      },
       { path: 'connect', loadComponent: () => import('./pages/settings/connect').then((m) => m.ConnectPage), title: 'Connect · mk-drive' },
       { path: 'links', loadComponent: () => import('./pages/settings/shares').then((m) => m.SharesPage), title: 'Links · mk-drive' },
       { path: 'people', loadComponent: () => import('./pages/settings/people').then((m) => m.PeoplePage), title: 'People · mk-drive' },

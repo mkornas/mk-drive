@@ -2,6 +2,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import type {
+  Alerts as NasAlerts,
   ConfigBackup,
   Dataset as NasDataset,
   DatasetCreateArgs,
@@ -57,8 +58,11 @@ import type {
   Location,
   MarkedEntry,
   Meta,
+  NotifySettings,
+  NotifySettingsInput,
   OpResult,
   PasswordChanged,
+  PushSubscribeInput,
   Role,
   SearchResult,
   Session,
@@ -166,6 +170,18 @@ export class ApiService {
     return firstValueFrom(this.http.put<SsoSettings>('/api/settings/password-login', { mode }));
   }
 
+  // ---- notifications (any signed-in account; web push to this account's browsers) ----
+  readonly notifications = {
+    get: (): Promise<NotifySettings> => this.get('/api/notifications'),
+    set: (input: NotifySettingsInput): Promise<NotifySettings> => firstValueFrom(this.http.put<NotifySettings>('/api/notifications', input)),
+    /** What `PushSubscription.toJSON()` gave, so the server can push to this browser. */
+    subscribe: (sub: PushSubscribeInput): Promise<NotifySettings> => this.post('/api/notifications/subscribe', sub),
+    unsubscribe: (endpoint: string): Promise<NotifySettings> => this.post('/api/notifications/unsubscribe', { endpoint }),
+    /** Forget another browser, by the id `GET /api/notifications` gave it. */
+    forget: (id: number): Promise<NotifySettings> => this.delete(`/api/notifications/devices/${id}`),
+    test: (): Promise<{ sent: number }> => this.post('/api/notifications/test', {}),
+  };
+
   // ---- NAS mode (admin; only when the mk-nas socket is mounted) ----
   readonly nas = {
     version: (): Promise<NasVersion> => this.get('/api/nas/version'),
@@ -196,6 +212,9 @@ export class ApiService {
     policies: (): Promise<NasPolicy[]> => this.get('/api/nas/policies'),
     /** What ZFS reported, newest first; the ones that matter unless `all`. */
     events: (all = false): Promise<ZfsEvent[]> => this.get('/api/nas/events', all ? new HttpParams().set('all', '1') : undefined),
+    /** What is wrong right now and what cleared lately; an agent without the verb answers with an error. */
+    alerts: (): Promise<NasAlerts> => this.get('/api/nas/alerts'),
+    ackAlert: (key: string): Promise<NasAlerts> => this.post('/api/nas/alerts/ack', { key }),
     // make (the agent validates everything and refuses anything destructive without the name typed)
     createPool: (args: PoolCreateArgs): Promise<NasPool> => this.post('/api/nas/pools', args),
     scrub: (pool: string): Promise<{ started: true }> => this.post(`/api/nas/pools/${encodeURIComponent(pool)}/scrub`, {}),

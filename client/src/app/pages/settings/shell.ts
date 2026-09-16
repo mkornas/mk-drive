@@ -15,6 +15,7 @@ interface Tab {
 const TABS: Tab[] = [
   { label: 'Account', path: '/settings/account', icon: 'user' },
   { label: 'Devices', path: '/settings/devices', icon: 'smartphone' },
+  { label: 'Notifications', path: '/settings/notifications', icon: 'bell' },
   { label: 'Connect', path: '/settings/connect', icon: 'plug' },
   { label: 'Links', path: '/settings/links', icon: 'link' },
   { label: 'People', path: '/settings/people', icon: 'users', admin: true },

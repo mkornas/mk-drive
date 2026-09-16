@@ -12,6 +12,7 @@ import { MkAppShell, type MkCommand, MkCommandPalette, MkMenu, MkMenuItem, MkMen
 import { ApiService, errorMessage } from './core/api.service';
 import { DriveService } from './core/drive.service';
 import { bytes } from './core/format';
+import { AlertBell } from './shared/alert-bell';
 import { UploadPanel } from './shared/upload-panel';
 
 interface SettingsLink {
@@ -34,6 +35,7 @@ const STORAGE: SettingsLink[] = [
 const SETTINGS: SettingsLink[] = [
   { label: 'Account', path: '/settings/account', icon: 'user' },
   { label: 'Devices', path: '/settings/devices', icon: 'smartphone' },
+  { label: 'Notifications', path: '/settings/notifications', icon: 'bell' },
   { label: 'Connect', path: '/settings/connect', icon: 'plug' },
   { label: 'Links', path: '/settings/links', icon: 'link' },
   { label: 'People', path: '/settings/people', icon: 'users', admin: true },
@@ -60,6 +62,7 @@ const SETTINGS: SettingsLink[] = [
     MkIcon,
     MkAvatar,
     MkToastContainer,
+    AlertBell,
     UploadPanel,
   ],
   template: `
@@ -97,6 +100,7 @@ const SETTINGS: SettingsLink[] = [
             <span class="hdr__name">{{ drive.name() }}</span>
           </a>
           <div class="hdr__spacer"></div>
+          <app-alert-bell />
           <button
             mkButton
             variant="ghost"

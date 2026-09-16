@@ -199,6 +199,45 @@ export interface SsoSettingsInput {
   clientSecret?: string;
 }
 
+/** How loud something has to be before this account wants to be woken. Mirrors the agent's alert severities. */
+export type NotifySeverity = 'critical' | 'warning' | 'info';
+
+/** A browser that asked to be notified. One row per browser, per account. */
+export interface PushDevice {
+  id: number;
+  /** What the browser said it is, shortened ("Firefox on Linux"). */
+  name: string;
+  addedAt: string;
+  lastSentAt: string | null;
+  /** This is the browser asking. */
+  current: boolean;
+}
+
+/** `GET /api/notifications`: what this account has set, and whether push can work here at all. */
+export interface NotifySettings {
+  /** The server can send: it has its signing keys (made on first start). */
+  supported: boolean;
+  /** For `PushManager.subscribe`; null when push is not supported. */
+  publicKey: string | null;
+  devices: PushDevice[];
+  /** Nothing quieter than this is pushed. */
+  minSeverity: NotifySeverity;
+  /** Push what the NAS says is wrong (admins only; the drive has nothing else to push yet). */
+  nasAlerts: boolean;
+}
+
+/** `PUT /api/notifications`. */
+export interface NotifySettingsInput {
+  minSeverity?: NotifySeverity;
+  nasAlerts?: boolean;
+}
+
+/** `POST /api/notifications/subscribe`: what `PushSubscription.toJSON()` gives. */
+export interface PushSubscribeInput {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+}
+
 export interface Meta {
   app: 'mk-drive';
   version: string;

@@ -38,6 +38,9 @@ services:
       # Optional explicit locations (JSON array), instead of discovering /locations/*.
       DRIVE_LOCATIONS: ${DRIVE_LOCATIONS:-}
       # NAS mode (a host running mk-nas): the agent's socket, mounted below; admins get the Storage section.
+      # Notifications: a push service can contact this address about the drive's requests. The signing keys are made
+      # once and kept in the database, so nothing else is needed for notifications to work.
+      DRIVE_VAPID_SUBJECT: ${DRIVE_VAPID_SUBJECT:-}
       DRIVE_NAS_SOCKET: ${DRIVE_NAS_SOCKET:-}
       # NAS mode: a token (32+ characters) for a monitor to read GET /api/nas/monitor (health only), e.g. mk-dashboard.
       DRIVE_NAS_MONITOR_TOKEN: ${DRIVE_NAS_MONITOR_TOKEN:-}

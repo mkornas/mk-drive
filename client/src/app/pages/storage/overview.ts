@@ -4,8 +4,23 @@ import { MkButton } from '@mk-kit/ui/button';
 import { MkIcon } from '@mk-kit/ui/icon';
 import { MkTag } from '@mk-kit/ui/data';
 import { MkAlert, MkDialogService, MkToastService } from '@mk-kit/ui/feedback';
-import type { Disk, Health, PoolSummary, Power, PowerAction, PowerScheduled, Scrub, Snapshot, System, Update, Version } from '../../../../../shared/nas';
+import type {
+  Alert,
+  AlertSeverity,
+  Disk,
+  Health,
+  PoolSummary,
+  Power,
+  PowerAction,
+  PowerScheduled,
+  Scrub,
+  Snapshot,
+  System,
+  Update,
+  Version,
+} from '../../../../../shared/nas';
 import { ApiService, errorMessage } from '../../core/api.service';
+import { AlertsService, severityTone } from '../../core/alerts.service';
 import { DriveService } from '../../core/drive.service';
 import { ago, bytes } from '../../core/format';
 import { typedConfirm } from './confirm';
@@ -51,18 +66,57 @@ interface Bay {
   template: `
     <app-storage heading="Storage" [description]="subtitle()" [loading]="q.loading()" [loaded]="q.data() !== null" [error]="q.error()" (refresh)="q.run()">
       @if (q.data(); as d) {
-        @if (!d.health.ok) {
-          <mk-alert
-            tone="danger"
-            [title]="d.health.problems.length === 1 ? 'Something needs you' : d.health.problems.length + ' things need you'"
-            class="alert"
-          >
-            <ul class="problems">
-              @for (p of d.health.problems; track p) {
-                <li>{{ p }}</li>
-              }
-            </ul>
-          </mk-alert>
+        @if (alerts.unavailable()) {
+          <!-- an agent older than the alerts verb: what health says, as before -->
+          @if (!d.health.ok) {
+            <mk-alert
+              tone="danger"
+              [title]="d.health.problems.length === 1 ? 'Something needs you' : d.health.problems.length + ' things need you'"
+              class="alert"
+            >
+              <ul class="problems">
+                @for (p of d.health.problems; track p) {
+                  <li>{{ p }}</li>
+                }
+              </ul>
+            </mk-alert>
+          }
+        } @else {
+          @for (a of alerts.open(); track a.key) {
+            <mk-alert [tone]="tone(a.severity)" [title]="a.title" class="alert alert--stack">
+              <div class="problem">
+                @if (a.detail) {
+                  <p class="problem__detail">{{ a.detail }}</p>
+                }
+                <div class="problem__foot">
+                  <span class="muted small" [title]="a.since">
+                    since {{ f.ago(ms(a.since)) }}
+                    @if (a.ackedAt) {
+                      · seen {{ f.ago(ms(a.ackedAt)) }}
+                    } @else if (!a.confirmed) {
+                      · still watching it
+                    }
+                  </span>
+                  @if (!a.ackedAt) {
+                    <button mkButton variant="outline" size="sm" [loading]="acking() === a.key" (click)="ack(a)">Acknowledge</button>
+                  }
+                </div>
+              </div>
+            </mk-alert>
+          }
+          @if (alerts.recent().length) {
+            <section class="events">
+              <h2>Cleared lately</h2>
+              <ul class="events__list">
+                @for (a of alerts.recent(); track a.key) {
+                  <li class="events__row">
+                    <span class="muted" [title]="a.clearedAt">{{ f.ago(ms(a.clearedAt)) }}</span>
+                    <span>{{ a.title }}</span>
+                  </li>
+                }
+              </ul>
+            </section>
+          }
         }
         @if (d.health.events?.length) {
           <section class="events">
@@ -302,6 +356,27 @@ interface Bay {
       .problems {
         margin: 0;
         padding-left: 1.2em;
+      }
+      .alert--stack {
+        margin-bottom: var(--mk-space-3);
+      }
+      .problem {
+        display: grid;
+        gap: var(--mk-space-2);
+      }
+      .problem__detail {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+      .problem__foot {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--mk-space-2);
+      }
+      .problem__foot .small {
+        font-size: var(--mk-font-size-sm);
       }
       .events {
         margin-bottom: var(--mk-space-6);
@@ -600,7 +675,10 @@ export class StorageOverviewPage {
   private readonly dialog = inject(MkDialogService);
   private readonly toast = inject(MkToastService);
   protected readonly drive = inject(DriveService);
+  protected readonly alerts = inject(AlertsService);
   protected readonly f = { ago, bytes };
+  /** The alert being acknowledged right now. */
+  protected readonly acking = signal<string | null>(null);
   protected readonly ms = ms;
   protected readonly Math = Math;
   protected readonly q = loader<Overview>(async () => {
@@ -672,8 +750,28 @@ export class StorageOverviewPage {
       if (this.update()?.run?.state === 'running') void this.followInstall();
     };
     void poll();
+    void this.alerts.load();
     const timer = setInterval(pollAll, 5000);
-    inject(DestroyRef).onDestroy(() => clearInterval(timer));
+    // the alerts move slowly and the bell shares this answer, so once a minute is plenty
+    const alertTimer = setInterval(() => void this.alerts.load(), 60_000);
+    inject(DestroyRef).onDestroy(() => {
+      clearInterval(timer);
+      clearInterval(alertTimer);
+    });
+  }
+
+  protected tone(severity: AlertSeverity): 'danger' | 'warning' | 'info' {
+    return severityTone[severity];
+  }
+
+  /** Say it has been seen: it stays on the page but stops nagging here and in the bell. */
+  async ack(a: Alert): Promise<void> {
+    this.acking.set(a.key);
+    try {
+      if (!(await this.alerts.ack(a.key))) this.toast.danger('The box did not take the acknowledgement');
+    } finally {
+      this.acking.set(null);
+    }
   }
 
   /** What is installed, what is out, and the newest install run; null from an agent without the update verbs. */

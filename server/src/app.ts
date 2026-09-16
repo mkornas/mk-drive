@@ -13,6 +13,9 @@ import { registerAccountRoutes } from './routes/account.ts';
 import { Settings } from './settings.ts';
 import { registerAdminRoutes } from './routes/admin.ts';
 import { registerAppPasswordRoutes } from './routes/app-passwords.ts';
+import { registerNotificationRoutes } from './routes/notifications.ts';
+import { Push } from './push.ts';
+import { watchAlerts } from './notify.ts';
 import { registerDavRoutes } from './routes/dav.ts';
 import { Connectors } from './connectors.ts';
 import { registerConnectorRoutes } from './routes/connectors.ts';
@@ -139,6 +142,11 @@ export async function createApp(cfg: Config, opts: { logger?: boolean } = {}): P
       }
     });
   }
+  // notifications: the browsers each account wants to be reached on
+  const push = new Push(db, settings, { subject: cfg.vapidSubject, publicKey: cfg.vapidPublic, privateKey: cfg.vapidPrivate });
+  registerNotificationRoutes(app, push, settings);
+
+  let stopWatching: (() => void) | null = null;
   let nas: NasClient | null = null;
   if (cfg.nasSocket) {
     nas = new NasClient(cfg.nasSocket);
@@ -146,6 +154,16 @@ export async function createApp(cfg: Config, opts: { logger?: boolean } = {}): P
     // shares from before per-share SMB lists become admins-only, once the server is up; not awaited, the agent may not
     // answer yet (GET /api/nas/shares does it again)
     const agent = nas;
+    // the box's alerts reach a phone even with no page open: one read a minute, pushed to the admins who asked
+    app.addHook('onListen', async () => {
+      stopWatching = watchAlerts({
+        push,
+        settings,
+        users,
+        alerts: () => agent.call('alerts'),
+        log: (m) => app.log.debug(m),
+      });
+    });
     app.addHook('onListen', async () => {
       migrateShareAccess(agent, users, { userId: null, email: 'mk-drive' }).catch((e: Error) =>
         app.log.warn(`SMB share lists not checked at startup: ${e.message}`),
@@ -221,6 +239,7 @@ export async function createApp(cfg: Config, opts: { logger?: boolean } = {}): P
 
   app.addHook('onClose', async () => {
     closing = true;
+    stopWatching?.();
     clearInterval(timer);
     db.close();
   });
