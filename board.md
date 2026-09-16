@@ -1,6 +1,6 @@
 ---
 kanban-plugin: board
-updated: 2026-09-15
+updated: 2026-09-16
 ---
 
 # mk-drive
@@ -11,6 +11,9 @@ One card per line, ranked top-down inside each column. `#p0`..`#p3` = priority, 
 
 ## Next
 
+- [ ] *Alerts from the box, on the phone** the drive is where a NAS alert reaches its owner: subscribe to web push, show what the agent reports (degraded pool, failing disk, failed scrub or backup, an update waiting) as a badge and a list, and let each kind be turned off; needs the mk-nas alert engine first #p1 #alerts #nas [[alerts-from-the-box-on-the-phone-the-drive-is-where-a-nas-al]]
+- [ ] *File-type icons** one mapping by type and extension instead of five buckets: Word, Excel, PowerPoint and ODF, code by language, ebooks, fonts, subtitles, disk images, installers, and a colour accent per family so a mixed folder reads at a glance; one place (core/file-kind.ts), used by the grid, the list, search, trash, shares and the preview; the same set in the iPhone app #p2 #ui
+- [ ] *Quota in view** a location's quota and how full it is, in the sidebar and while uploading, with a warning before it fills — the agent already stores a dataset quota, the drive never shows it; refuse an upload that cannot fit with a clear reason #p2 #nas
 - [ ] *Datasets page polish** tree indentation by hierarchy, used bar relative to quota, 'Open in the drive' link for location datasets, snapshot count per dataset, delete dataset with typed name once the agent has dataset.destroy #p2 #nas [[datasets-page-polish-tree-indentation-by-hierarchy-used-bar]]
 - [ ] *Snapshots page polish** group by dataset with a dataset filter select, relative times, 'Browse files' link into the drive's versions (.zfs/snapshot) for location datasets, delete several at once with one typed confirmation #p2 #nas [[snapshots-page-polish-group-by-dataset-with-a-dataset-filter]]
 - [ ] *Live storage state** poll every 30 s while a scrub or resilver runs, and a Storage badge in the sidebar when health is not ok; SSE from the agent later #p2 #nas [[live-storage-state-poll-every-30-s-while-a-scrub-or-resilver]]
@@ -21,6 +24,12 @@ One card per line, ranked top-down inside each column. `#p0`..`#p3` = priority, 
 - [ ] **iOS app: say why a home address is refused** when iOS blocks plain http (NSURLErrorAppTransportSecurityRequiresSecureConnection, -1022) — a name like nas.home.arpa is neither an IP, a .local name nor dotless — tell the person to type http://<box>.local:8810 or the IP with the port instead of a generic 'can't connect'; and when a local address times out, mention Local Network permission and that a guest network may not reach the server #p2 #ios
 - [ ] **iOS app: a home and an outside address** the account keeps two server addresses for the same drive (e.g. http://mk-nas.local:8810 and https://drive.example.com), uses the local one when it answers on the current network and the outside one otherwise, re-checked when the network changes; both ends are the same drive, so the app password and the Files adapter's items stay valid; the Files extension follows the same choice #p2 #ios
 - [ ] *Security: open redirect in @mk-kit/auth safeNext** /\t/evil passes: reject control characters, parse against the origin (fix in mk-kit, then bump) #p2 #security [[security-open-redirect-in-mk-kit-auth-safenext-t-evil-passes]]
+- [ ] *Space insights** one page answering 'what is filling the disk': the biggest folders and files under a location, per-location use against its quota, and what compression saves (folder stats here, the ZFS numbers from the agent); a bounded walk, cached, never blocking the browse pages #p2 #nas
+- [ ] *Restore an older version in place** snapshots can be browsed but not put back: a Restore button on a file version and on a folder, saying which snapshot it comes from and what it will overwrite, with the current copy kept as a version first #p2 #versions
+- [ ] *Search filters** narrow a search by type, date and size, and 'only this folder'; the search itself exists (names, and text inside PDFs) but everything comes back in one undifferentiated list #p2 #search
+- [ ] *Open Office documents** Word, Excel and PowerPoint can only be downloaded today: show them read-only in the preview pane, rendered on the box (a converter next to the drive, optional — nothing new required for people who do not want it) #p3 #preview
+- [ ] *Share link limits** a download count limit on a public link, and the page saying who shared it; expiry and a password already exist #p3 #sharing
+- [ ] *Drop-box links** a link that lets someone without an account upload into one folder (family photos), with a size cap and nothing else visible #p3 #sharing
 
 ## Later
 
