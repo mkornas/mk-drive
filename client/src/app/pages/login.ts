@@ -17,7 +17,12 @@ import { AuthCard } from '../shared/auth-card';
     <app-auth-card title="Sign in" lead="Use the account you were given for this drive.">
       @if (drive.meta()?.demo) {
         <p class="demo">
-          Demo drive, reset every night. Sign in as <strong>demo@example.com</strong> with <strong>demo-drive-2026</strong>.
+          Demo drive, reset every night.
+          @if (drive.meta()?.demoAccount; as a) {
+            Sign in as <strong>{{ a.email }}</strong> with <strong>{{ a.password }}</strong>.
+          } @else {
+            Sign in with the demo account you were given.
+          }
         </p>
       }
       @if (reason(); as reason) {

@@ -157,6 +157,9 @@ export const config = {
   demo: envBool('DRIVE_DEMO', false),
   /** Demo mode: a directory copied into the demo location on every start (real photos, videos, PDFs to show). */
   demoSeed: env('DRIVE_DEMO_SEED', ''),
+  /** Demo mode: the demo account's password. Set one and it is no longer printed on the sign-in page, so only whoever
+   * was told it can open the demo (an app review, a customer). Unset, the well-known one is shown to every visitor. */
+  demoPassword: env('DRIVE_DEMO_PASSWORD', ''),
 
   /** Days a deleted item stays in the trash. */
   trashDays: envInt('DRIVE_TRASH_DAYS', 30),

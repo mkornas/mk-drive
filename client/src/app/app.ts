@@ -74,7 +74,10 @@ const SETTINGS: SettingsLink[] = [
       }
       @if (drive.meta()?.demo) {
         <div class="demo">
-          Demo drive — sample data, reset on every restart. Sign in as <strong>demo@example.com</strong> / <strong>demo-drive-2026</strong>.
+          Demo drive — sample data, reset on every restart.
+          @if (drive.meta()?.demoAccount; as a) {
+            Sign in as <strong>{{ a.email }}</strong> / <strong>{{ a.password }}</strong>.
+          }
         </div>
       }
       <mk-app-shell #shell [(sidebarCollapsed)]="collapsed">

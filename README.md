@@ -246,6 +246,7 @@ the drive notices the snapshot directory on its own.
 | `DRIVE_HIDE` | `.zfs,.mk-drive,.trash` | Names never shown anywhere |
 | `DRIVE_TRASH_DAYS` | `30` | How long deleted items stay in the trash |
 | `DRIVE_DEMO` | `false` | Sample location + demo admin, recreated on every start (never for real data) |
+| `DRIVE_DEMO_PASSWORD` | — | Demo mode: the demo account's password. Set one and it is never printed on the sign-in page, so only whoever you told can open the demo (an app review, a customer). Unset, every visitor is shown `demo-drive-2026`. |
 | `DRIVE_DEMO_SEED` | — | Demo mode: a directory copied into the demo location on every start (real photos, videos, PDFs; timestamps kept). `tools/demo-seed/build.mjs` builds one from public-domain sources |
 | `DRIVE_THUMB_DIR` / `DRIVE_THUMB_CACHE_MB` | `<data dir>/thumbs` / `512` | Thumbnail cache location and size cap |
 | `DRIVE_FFMPEG` | `ffmpeg` | The ffmpeg binary for video poster frames; missing = no video thumbnails (the image ships it) |

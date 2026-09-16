@@ -80,7 +80,7 @@ export async function createApp(cfg: Config, opts: { logger?: boolean } = {}): P
   if (cfg.demo) {
     const demo = await seedDemo(cfg);
     cfg.locations = [{ name: demo.name, path: demo.path, mode: 'rw', hide: [] }, ...cfg.locations];
-    await seedDemoUsers(users);
+    await seedDemoUsers(users, cfg);
     app.log.warn('DEMO MODE: sample data under the data dir is recreated on every start');
   }
   const locations = new Locations(cfg);

@@ -12,13 +12,20 @@ import type { Config } from './config.ts';
 import type { Users } from './users.ts';
 
 export const DEMO_EMAIL = 'demo@example.com';
+/** The password every visitor is told, unless DRIVE_DEMO_PASSWORD names another one. */
 export const DEMO_PASSWORD = 'demo-drive-2026';
 
-const README = `# Welcome to the demo drive
+/** The demo account's password: the operator's, or the well-known one. `shown` is false for an operator's own. */
+export function demoPasswordOf(cfg: Pick<Config, 'demoPassword'>): { password: string; shown: boolean } {
+  const set = cfg.demoPassword.trim();
+  return set ? { password: set, shown: false } : { password: DEMO_PASSWORD, shown: true };
+}
+
+const readme = (password: string | null): string => `# Welcome to the demo drive
 
 Everything here is sample data that is **recreated whenever the server starts**, so feel free to upload, rename, move and delete.
 
-- Sign in as \`${DEMO_EMAIL}\` with \`${DEMO_PASSWORD}\`
+${password ? `- Sign in as \`${DEMO_EMAIL}\` with \`${password}\`` : `- Sign in as \`${DEMO_EMAIL}\` with the password you were given`}
 - Try the grid view, the lightbox on the photos, search, the command palette (Ctrl/⌘ K)
 - Share a link, star something, drag a file onto a folder
 `;
@@ -45,7 +52,8 @@ export async function seedDemo(cfg: Config): Promise<{ name: string; path: strin
   await mkdir(join(root, 'Photos', 'Coast'), { recursive: true });
   await mkdir(join(root, 'Documents', 'Invoices'), { recursive: true });
   await mkdir(join(root, 'Projects', 'mk-drive', 'src'), { recursive: true });
-  await writeFile(join(root, 'README.md'), README);
+  const { password, shown } = demoPasswordOf(cfg);
+  await writeFile(join(root, 'README.md'), readme(shown ? password : null));
   await writeFile(join(root, 'Documents', 'notes.md'), '# Notes\n\n- Renew the domain\n- Back up the photos\n- Call the plumber\n');
   await writeFile(join(root, 'Documents', 'budget.json'), JSON.stringify({ month: '2026-09', income: 8200, spend: { rent: 2400, food: 900, fun: 300 } }, null, 2));
   await writeFile(join(root, 'Documents', 'Invoices', 'invoice-2026-08.txt'), 'Invoice 2026-08\nTotal: 1 230,00 zł\nPaid.\n');
@@ -81,12 +89,13 @@ export async function seedDemo(cfg: Config): Promise<{ name: string; path: strin
  * visits, so it must not be able to manage people, locations or connectors. A read-only
  * guest sits next to it for showing what a member with less access sees.
  */
-export async function seedDemoUsers(users: Users): Promise<void> {
+export async function seedDemoUsers(users: Users, cfg: Pick<Config, 'demoPassword'>): Promise<void> {
+  const { password } = demoPasswordOf(cfg);
   const existing = users.byEmail(DEMO_EMAIL);
   if (existing) {
     users.update(existing.id, { role: 'member', disabled: false });
     users.setGrants(existing.id, { Demo: 'write' });
-    await users.setPassword(existing.id, DEMO_PASSWORD);
-  } else await users.create({ email: DEMO_EMAIL, name: 'Demo', role: 'member', password: DEMO_PASSWORD, grants: { Demo: 'write' } });
+    await users.setPassword(existing.id, password);
+  } else await users.create({ email: DEMO_EMAIL, name: 'Demo', role: 'member', password, grants: { Demo: 'write' } });
   if (!users.byEmail('guest@example.com')) await users.create({ email: 'guest@example.com', name: 'Guest', role: 'member', password: DEMO_PASSWORD, grants: { Demo: 'read' } });
 }

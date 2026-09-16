@@ -215,6 +215,9 @@ export interface Meta {
   reason?: string;
   /** Demo mode: sample data, reset on every start. */
   demo?: boolean;
+  /** Demo mode with the well-known password: the pages may print the demo account. Unset when the operator set their own
+   * `DRIVE_DEMO_PASSWORD`, which is told to whoever should get in (an app review) and never shown. */
+  demoAccount?: { email: string; password: string };
   /** Single sign-on is configured: show a "Sign in with <name>" button that goes to `/auth/login`. */
   sso?: { name: string };
   /** The password form is offered to this visitor (`DRIVE_PASSWORD_LOGIN` or Settings → Sign-in may limit it to the local network or turn it off). */

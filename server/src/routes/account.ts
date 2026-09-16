@@ -3,6 +3,7 @@ import { NAS_CONTRACT, type NasClient } from '../nas.ts';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Config } from '../config.ts';
 import { type Auth, clearSessionCookie, clientIp, passwordLoginAllowed, resolvePasswordLogin, setSessionCookie } from '../auth.ts';
+import { DEMO_EMAIL, DEMO_PASSWORD, demoPasswordOf } from '../demo.ts';
 import { PASSWORD_MIN, verifyPassword, type Users } from '../users.ts';
 import { badRequest, forbidden, HttpError } from '../errors.ts';
 import { sessionOnly } from './app-passwords.ts';
@@ -63,6 +64,7 @@ export function registerAccountRoutes(
     setupCodeRequired: (users.count() === 0 && !!cfg.setupToken) || undefined,
     reason: req.identity ? undefined : req.authReason,
     demo: cfg.demo || undefined,
+    demoAccount: cfg.demo && demoPasswordOf(cfg).shown ? { email: DEMO_EMAIL, password: DEMO_PASSWORD } : undefined,
     sso: sso?.conf ? { name: sso.conf.name } : undefined,
     passwordLogin: passwordLoginAllowed(req, cfg, settings),
     passwordLoginLocal: resolvePasswordLogin(cfg, settings).mode === 'local' || undefined,

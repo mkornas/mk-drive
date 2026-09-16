@@ -34,6 +34,7 @@ services:
       # admin on every start; DRIVE_DEMO_SEED names a directory copied into it (real photos, videos, PDFs).
       # DRIVE_DEMO: "true"
       # DRIVE_DEMO_SEED: /seed
+      # DRIVE_DEMO_PASSWORD: a-password-only-you-share  # unset: demo-drive-2026, printed on the sign-in page
       # Optional explicit locations (JSON array), instead of discovering /locations/*.
       DRIVE_LOCATIONS: ${DRIVE_LOCATIONS:-}
       # NAS mode (a host running mk-nas): the agent's socket, mounted below; admins get the Storage section.
