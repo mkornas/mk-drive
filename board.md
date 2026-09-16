@@ -9,10 +9,10 @@ One card per line, ranked top-down inside each column. `#p0`..`#p3` = priority, 
 
 ## Now
 
+- [ ] *File-type icons** one mapping by type and extension instead of five buckets: Word, Excel, PowerPoint and ODF, code by language, ebooks, fonts, subtitles, disk images, installers, and a colour accent per family so a mixed folder reads at a glance; one place (core/file-kind.ts), used by the grid, the list, search, trash, shares and the preview; the same set in the iPhone app #p2 #ui
+
 ## Next
 
-- [ ] *Alerts from the box, on the phone** the drive is where a NAS alert reaches its owner: subscribe to web push, show what the agent reports (degraded pool, failing disk, failed scrub or backup, an update waiting) as a badge and a list, and let each kind be turned off; needs the mk-nas alert engine first #p1 #alerts #nas [[alerts-from-the-box-on-the-phone-the-drive-is-where-a-nas-al]]
-- [ ] *File-type icons** one mapping by type and extension instead of five buckets: Word, Excel, PowerPoint and ODF, code by language, ebooks, fonts, subtitles, disk images, installers, and a colour accent per family so a mixed folder reads at a glance; one place (core/file-kind.ts), used by the grid, the list, search, trash, shares and the preview; the same set in the iPhone app #p2 #ui
 - [ ] *Quota in view** a location's quota and how full it is, in the sidebar and while uploading, with a warning before it fills — the agent already stores a dataset quota, the drive never shows it; refuse an upload that cannot fit with a clear reason #p2 #nas
 - [ ] *Datasets page polish** tree indentation by hierarchy, used bar relative to quota, 'Open in the drive' link for location datasets, snapshot count per dataset, delete dataset with typed name once the agent has dataset.destroy #p2 #nas [[datasets-page-polish-tree-indentation-by-hierarchy-used-bar]]
 - [ ] *Snapshots page polish** group by dataset with a dataset filter select, relative times, 'Browse files' link into the drive's versions (.zfs/snapshot) for location datasets, delete several at once with one typed confirmation #p2 #nas [[snapshots-page-polish-group-by-dataset-with-a-dataset-filter]]
@@ -37,6 +37,7 @@ One card per line, ranked top-down inside each column. `#p0`..`#p3` = priority, 
 - [ ] **iOS app** File Provider extension over /api (ETags, chunked uploads); Swift, separate repo, after the web app is stable #p3 #beyond
 
 ## Done
+- [x] *Alerts from the box, on the phone** the drive is where a NAS alert reaches its owner: subscribe to web push, show what the agent reports (degraded pool, failing disk, failed scrub or backup, an update waiting) as a badge and a list, and let each kind be turned off; needs the mk-nas alert engine first #p1 #alerts #nas [[alerts-from-the-box-on-the-phone-the-drive-is-where-a-nas-al]]
 - [x] *Security: Web Share Target accepts cross-site POSTs** ignore /share POSTs that are not from the installed app #p3 #security [[security-web-share-target-accepts-cross-site-posts-ignore-sh]]
 - [x] *Security: user-share takeover** a weaker user re-sharing the same path takes over and downgrades an existing share: keep the existing owner #p2 #security [[security-user-share-takeover-a-weaker-user-re-sharing-the-sa]]
 - [x] *Security: app passwords survive a password change or reset** revoke them on admin reset (and offer revoke-all on change) #p2 #security [[security-app-passwords-survive-a-password-change-or-reset-re]]
