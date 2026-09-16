@@ -1,7 +1,7 @@
 {
   "name": "mk-drive",
   "private": true,
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Self-hosted web drive: point it at storage, browse, upload, preview and share. Built on @mk-kit/ui.",
   "license": "AGPL-3.0-only",
   "scripts": {
