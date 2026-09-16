@@ -1,0 +1,4 @@
+# *File-type icons** one mapping by type and extension instead of five buckets: Word, Excel, PowerPoint and ODF, code by language, ebooks, fonts, subtitles, disk images, installers, and a colour accent per family so a mixed folder reads at a glance; one place (core/file-kind.ts), used by the grid, the list, search, trash, shares and the preview; the same set in the iPhone app
+
+- 2026-09-16 18:54 — Done (b2f5b26): kind by media type and extension (doc/sheet/slides/code/ebook/font/subtitle/disk/app/database/archive), one icon each, colour only for folders + PDF/Word/Excel/PowerPoint, colours centralised in styles.scss, first client test (7 cases). Checked in the VM against one file of every kind.
+- 2026-09-16 18:54 — Icons by type and extension, conventional colours, tests; verified in the browser — main @ b2f5b26 File-type icons: what a file is, at a glance
