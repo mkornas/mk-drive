@@ -9,7 +9,7 @@ import { MkSpinner } from '@mk-kit/ui/status';
 import type { Entry, FolderStats } from '../../../../shared/types';
 import { ApiService, errorMessage } from '../core/api.service';
 import { ago, bytes, dateTime } from '../core/format';
-import { iconFor } from '../core/file-kind';
+import { iconClass, iconFor } from '../core/file-kind';
 
 export interface FolderDetailsData {
   entry: Entry;
@@ -38,7 +38,7 @@ export interface FolderDetailsData {
           <h3>Largest files</h3>
           <ul class="list">
             @for (e of s.largest; track e.path) {
-              <li><button type="button" class="item" (click)="open(e)"><mk-icon [name]="icon(e)" size="sm" /><span class="item__name">{{ e.name }}</span><span class="muted small item__where">{{ parent(e.path) }}</span><span class="num muted">{{ f.bytes(e.size) }}</span></button></li>
+              <li><button type="button" class="item" (click)="open(e)"><mk-icon [name]="icon(e)" size="sm" [class]="iconClass(e)" /><span class="item__name">{{ e.name }}</span><span class="muted small item__where">{{ parent(e.path) }}</span><span class="num muted">{{ f.bytes(e.size) }}</span></button></li>
             }
           </ul>
         }
@@ -136,6 +136,7 @@ export class FolderDetailsDialog {
   private readonly router = inject(Router);
   protected readonly f = { ago, bytes, dateTime };
   protected readonly icon = iconFor;
+  protected readonly iconClass = iconClass;
   protected readonly stats = signal<FolderStats | null>(null);
   protected readonly error = signal<string | null>(null);
 

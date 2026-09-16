@@ -7,7 +7,7 @@ import type { Arrival, Entry, MarkedEntry, SearchResult } from '../../../../shar
 import { ApiService, errorMessage } from '../core/api.service';
 import { DriveService } from '../core/drive.service';
 import { ago, bytes } from '../core/format';
-import { iconFor } from '../core/file-kind';
+import { iconClass, iconFor } from '../core/file-kind';
 
 const WEEK = 7 * 86_400_000;
 
@@ -51,7 +51,7 @@ const WEEK = 7 * 86_400_000;
                           @if (e.thumb) {
                             <img [src]="api.thumbUrl(e.path, 160)" alt="" loading="lazy" (error)="$any($event.target).hidden = true" />
                           }
-                          <mk-icon [name]="icon(e)" size="sm" class="row__icon" [class.row__icon--dir]="e.kind === 'dir'" />
+                          <mk-icon [name]="icon(e)" size="sm" [class]="iconClass(e, 'row__icon')" />
                         </span>
                         <span class="row__text">
                           <span class="row__name">{{ e.name }}</span>
@@ -103,7 +103,7 @@ const WEEK = 7 * 86_400_000;
                         @if (a.thumb) {
                           <img [src]="api.thumbUrl(a.path, 160)" alt="" loading="lazy" (error)="$any($event.target).hidden = true" />
                         }
-                        <mk-icon [name]="icon(a)" size="sm" class="row__icon" />
+                        <mk-icon [name]="icon(a)" size="sm" [class]="iconClass(a, 'row__icon')" />
                       </span>
                       <span class="row__text">
                         <span class="row__name">{{ a.name }}</span>
@@ -131,7 +131,7 @@ const WEEK = 7 * 86_400_000;
               } @else {
                 <ul class="list">
                   @for (e of list; track e.path) {
-                    <li><button type="button" class="item" (click)="open(e)"><mk-icon [name]="icon(e)" size="sm" [class.dir]="e.kind === 'dir'" /><span class="item__name">{{ e.name }}</span><span class="item__meta muted">{{ f.ago(e.at) }}</span></button></li>
+                    <li><button type="button" class="item" (click)="open(e)"><mk-icon [name]="icon(e)" size="sm" [class]="iconClass(e)" /><span class="item__name">{{ e.name }}</span><span class="item__meta muted">{{ f.ago(e.at) }}</span></button></li>
                   }
                 </ul>
                 <a class="more" href="/recent" (click)="go($event, '/recent')">All recent</a>
@@ -146,7 +146,7 @@ const WEEK = 7 * 86_400_000;
               } @else {
                 <ul class="list">
                   @for (e of list; track e.path) {
-                    <li><button type="button" class="item" (click)="open(e)"><mk-icon [name]="icon(e)" size="sm" [class.dir]="e.kind === 'dir'" /><span class="item__name">{{ e.name }}</span><span class="item__meta muted">{{ parent(e.path) }}</span></button></li>
+                    <li><button type="button" class="item" (click)="open(e)"><mk-icon [name]="icon(e)" size="sm" [class]="iconClass(e)" /><span class="item__name">{{ e.name }}</span><span class="item__meta muted">{{ parent(e.path) }}</span></button></li>
                   }
                 </ul>
                 <a class="more" href="/starred" (click)="go($event, '/starred')">All starred</a>
@@ -205,9 +205,6 @@ const WEEK = 7 * 86_400_000;
         font-size: var(--mk-font-size-xs);
         white-space: nowrap;
         cursor: pointer;
-      }
-      .row__icon--dir {
-        color: var(--mk-primary);
       }
       .row__snippet {
         font-size: var(--mk-font-size-xs);
@@ -342,9 +339,6 @@ const WEEK = 7 * 86_400_000;
       .row__media img[hidden] + .row__icon {
         visibility: visible;
       }
-      .row__icon {
-        color: var(--mk-text-muted);
-      }
       .row__text {
         min-width: 0;
         display: grid;
@@ -416,9 +410,6 @@ const WEEK = 7 * 86_400_000;
         color: var(--mk-text-muted);
         flex: none;
       }
-      .item mk-icon.dir {
-        color: var(--mk-primary);
-      }
       .item__name {
         flex: 1;
         min-width: 0;
@@ -461,6 +452,7 @@ export class HomePage {
   private readonly router = inject(Router);
   protected readonly f = { ago, bytes };
   protected readonly icon = iconFor;
+  protected readonly iconClass = iconClass;
   protected readonly state = signal<'loading' | 'empty' | 'ready'>('loading');
   protected readonly arrivals = signal<Arrival[] | null>(null);
   protected readonly recent = signal<MarkedEntry[] | null>(null);

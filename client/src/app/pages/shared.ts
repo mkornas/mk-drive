@@ -8,7 +8,7 @@ import { MkToastService, MkTooltip } from '@mk-kit/ui/feedback';
 import { MkTag } from '@mk-kit/ui/data';
 import { MkDrawer } from '@mk-kit/ui/navigation';
 import type { Entry, UserShare } from '../../../../shared/types';
-import { iconFor } from '../core/file-kind';
+import { iconClass, iconFor } from '../core/file-kind';
 import { Preview } from '../shared/preview';
 import { ApiService, errorMessage } from '../core/api.service';
 import { DriveService } from '../core/drive.service';
@@ -37,7 +37,7 @@ interface Row {
       } @else {
         <mk-table [columns]="columns" [data]="rows()" trackKey="id" density="compact" [stackAt]="640" [clickableRows]="true" (rowClick)="open($event)">
           <ng-template mkTableCell="name" let-row="row">
-            <span class="name"><mk-icon [name]="icon(row.share)" size="sm" [class.dir]="row.share.kind !== 'file'" /> {{ row.share.name }}</span>
+            <span class="name"><mk-icon [name]="icon(row.share)" size="sm" [class]="tone(row.share)" /> {{ row.share.name }}</span>
           </ng-template>
           <ng-template mkTableCell="from" let-row="row"
             ><span class="muted">{{ row.share.owner.name }}</span></ng-template
@@ -88,9 +88,6 @@ interface Row {
         align-items: center;
         gap: var(--mk-space-2);
       }
-      .dir {
-        color: var(--mk-primary);
-      }
     `,
   ],
 })
@@ -115,8 +112,17 @@ export class SharedPage {
     void this.drive.ready().then(() => this.drive.refreshLocations().catch(() => {}));
   }
 
+  /** A share row is not an entry, but it knows enough for the icon: what it is, its type and its name. */
+  private asEntry(s: UserShare) {
+    return { kind: s.kind === 'file' ? ('file' as const) : ('dir' as const), mime: s.mime ?? '', name: s.name };
+  }
+
   icon(s: UserShare): string {
-    return iconFor({ kind: s.kind ?? 'dir', mime: s.mime ?? '' });
+    return iconFor(this.asEntry(s));
+  }
+
+  tone(s: UserShare): string {
+    return iconClass(this.asEntry(s));
   }
 
   /** A folder opens in the browser; a file has no visible parent, so it opens right here. */

@@ -24,7 +24,7 @@ import { DriveService } from '../core/drive.service';
 import { OpsService } from '../core/ops.service';
 import { UploaderService, filesFromDataTransfer } from '../core/uploader.service';
 import { ago, bytes, dateTime } from '../core/format';
-import { iconFor, kindOf } from '../core/file-kind';
+import { iconClass, iconFor, kindOf } from '../core/file-kind';
 import { FolderTree } from '../shared/folder-tree';
 import { Preview } from '../shared/preview';
 import { ShareDialog, type ShareDialogData } from '../shared/share-dialog';
@@ -152,7 +152,7 @@ const HIDDEN_KEY = 'mk-drive.showHidden';
                   @if (row.entry.thumb) {
                     <img [src]="api.thumbUrl(row.entry.path, 320)" [alt]="" loading="lazy" decoding="async" (error)="$any($event.target).hidden = true" />
                   }
-                  <mk-icon [name]="icon(row.entry)" size="lg" class="card__icon" [class.card__icon--dir]="row.entry.kind === 'dir'" />
+                  <mk-icon [name]="icon(row.entry)" size="lg" [class]="iconClass(row.entry, 'card__icon')" />
                 </span>
                 <span class="card__name">{{ row.entry.name }}</span>
                 @if (searching()) {
@@ -172,7 +172,7 @@ const HIDDEN_KEY = 'mk-drive.showHidden';
           <ng-template mkTableCell="name" let-row="row">
             <span class="name" [class.name--hidden]="row.entry.hidden" [attr.data-path]="row.entry.path" mkDropZone [mkDropZoneData]="row.entry.path" [mkDropZoneDisabled]="row.entry.kind !== 'dir' || !canWrite()" (mkDropZoneDropped)="droppedInto($event)">
               <span class="name__drag" mkDrag [mkDragData]="row.entry.path" [mkDragDisabled]="!canWrite()">
-                <mk-icon [name]="icon(row.entry)" size="sm" class="name__icon" [class.name__icon--dir]="row.entry.kind === 'dir'" />
+                <mk-icon [name]="icon(row.entry)" size="sm" [class]="iconClass(row.entry, 'name__icon')" />
                 <span class="name__text">{{ row.entry.name }}@if (searching()) {<span class="muted name__where">{{ parentOf(row.entry.path) }}</span>}@if (row.entry.snippet) {<span class="name__where snippet">{{ row.entry.snippet }}</span>}</span>
                 @if (drive.isStarred(row.entry.path)) {
                   <mk-icon name="star" size="sm" class="name__star" />
@@ -336,11 +336,7 @@ const HIDDEN_KEY = 'mk-drive.showHidden';
         opacity: 0.5;
       }
       .name__icon {
-        color: var(--mk-text-muted);
         flex: none;
-      }
-      .name__icon--dir {
-        color: var(--mk-primary);
       }
       .name__text {
         overflow-wrap: anywhere;
@@ -449,12 +445,6 @@ const HIDDEN_KEY = 'mk-drive.showHidden';
       .card__media img[hidden] {
         display: none;
       }
-      .card__icon {
-        color: var(--mk-text-muted);
-      }
-      .card__icon--dir {
-        color: var(--mk-primary);
-      }
       .card__media img + .card__icon {
         visibility: hidden;
       }
@@ -546,6 +536,7 @@ export class BrowsePage {
   private readonly title = inject(Title);
   protected readonly f = { bytes, dateTime, ago };
   protected readonly icon = iconFor;
+  protected readonly iconClass = iconClass;
   protected readonly fileInput = viewChild.required<ElementRef<HTMLInputElement>>('fileInput');
   protected readonly folderInput = viewChild.required<ElementRef<HTMLInputElement>>('folderInput');
 

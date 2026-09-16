@@ -120,3 +120,29 @@ app-auth-card input[mkInput] {
   width: 100%;
   box-sizing: border-box;
 }
+
+/* File icons. Colour only where it says something people already know: folders in the drive's own accent, and the
+   document kinds that have had these colours for decades. Everything else keeps the text colour. Two classes, so the
+   tone wins over a page's own `.card__icon` rule without anybody having to remember it. */
+mk-icon.ficon {
+  /* the element too, so this beats the kit's own `.mk-icon { color: inherit }`, which loads after this file */
+  color: var(--mk-text-muted);
+}
+mk-icon.ficon.ficon--dir {
+  color: var(--mk-primary);
+}
+mk-icon.ficon.ficon--pdf {
+  color: var(--mk-danger);
+}
+mk-icon.ficon.ficon--doc {
+  color: var(--mk-info);
+}
+mk-icon.ficon.ficon--sheet {
+  color: var(--mk-success);
+}
+mk-icon.ficon.ficon--slides {
+  color: var(--mk-warning);
+}
+mk-icon.ficon.ficon--media {
+  color: var(--mk-text-muted);
+}

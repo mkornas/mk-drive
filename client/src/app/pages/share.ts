@@ -15,7 +15,7 @@ import { filesFromDataTransfer, sendFile } from '../core/uploader.service';
 import type { Entry, Listing, ShareInfo } from '../../../../shared/types';
 import { ApiService, errorMessage } from '../core/api.service';
 import { bytes, dateTime } from '../core/format';
-import { iconFor, kindOf } from '../core/file-kind';
+import { iconClass, iconFor, kindOf } from '../core/file-kind';
 import { AuthCard } from '../shared/auth-card';
 
 /** One file a visitor sends through a file request. */
@@ -135,7 +135,7 @@ interface Send {
                         @if (e.thumb) {
                           <img [src]="api.shareThumbUrl(i.id, e.path, 320)" alt="" loading="lazy" (error)="$any($event.target).hidden = true" />
                         }
-                        <mk-icon [name]="icon(e)" size="lg" class="card__icon" [class.card__icon--dir]="e.kind === 'dir'" />
+                        <mk-icon [name]="icon(e)" size="lg" [class]="iconClass(e, 'card__icon')" />
                       </span>
                       <span class="card__name">{{ e.name }}</span>
                       <span class="card__meta muted">{{ e.kind === 'dir' ? 'folder' : f.bytes(e.size) }}</span>
@@ -390,6 +390,7 @@ export class SharePage {
   private readonly lightbox = inject(MkLightboxService);
   protected readonly f = { bytes, dateTime };
   protected readonly icon = iconFor;
+  protected readonly iconClass = iconClass;
   private readonly id = toSignal(this.route.paramMap.pipe(map((p) => p.get('id') ?? '')), { initialValue: '' });
   protected readonly info = signal<ShareInfo | null>(null);
   protected readonly state = signal<'loading' | 'ready' | 'gone'>('loading');

@@ -9,7 +9,7 @@ import type { MarkedEntry } from '../../../../shared/types';
 import { ApiService, errorMessage } from '../core/api.service';
 import { DriveService } from '../core/drive.service';
 import { ago, bytes } from '../core/format';
-import { iconFor } from '../core/file-kind';
+import { iconClass, iconFor } from '../core/file-kind';
 
 interface Row {
   id: string;
@@ -39,7 +39,7 @@ interface Row {
       } @else {
         <mk-table [columns]="columns" [data]="rows()" trackKey="id" density="compact" [stackAt]="640" [clickableRows]="true" (rowClick)="open($event)">
           <ng-template mkTableCell="name" let-row="row">
-            <span class="name"><mk-icon [name]="icon(row.entry)" size="sm" [class.dir]="row.entry.kind === 'dir'" /> {{ row.entry.name }}</span>
+            <span class="name"><mk-icon [name]="icon(row.entry)" size="sm" [class]="iconClass(row.entry)" /> {{ row.entry.name }}</span>
           </ng-template>
           <ng-template mkTableCell="where" let-row="row"><span class="mono muted small">{{ parent(row.entry.path) }}</span></ng-template>
           <ng-template mkTableCell="size" let-row="row"><span class="num muted">{{ row.entry.kind === 'dir' ? '—' : f.bytes(row.entry.size) }}</span></ng-template>
@@ -75,9 +75,6 @@ interface Row {
         align-items: center;
         gap: var(--mk-space-2);
       }
-      .dir {
-        color: var(--mk-primary);
-      }
       .starred {
         color: var(--mk-warning);
       }
@@ -96,6 +93,7 @@ export class MarkedPage {
   readonly kind = input.required<'recent' | 'starred'>();
   protected readonly f = { bytes, ago };
   protected readonly icon = iconFor;
+  protected readonly iconClass = iconClass;
   protected readonly entries = signal<MarkedEntry[] | null>(null);
   protected readonly rows = computed<Row[]>(() => (this.entries() ?? []).map((entry) => ({ id: entry.path, entry })));
   protected readonly columns: MkTableColumn<Row>[] = [
