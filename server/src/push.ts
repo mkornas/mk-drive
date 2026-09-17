@@ -8,6 +8,7 @@
  * override them for an operator who wants to keep their own.
  */
 import { randomUUID } from 'node:crypto';
+import { isIP } from 'node:net';
 import type { DatabaseSync } from 'node:sqlite';
 import webpush from 'web-push';
 import type { NotifySeverity, PushDevice, PushSubscribeInput } from '../../shared/types.ts';
@@ -33,12 +34,18 @@ interface SubRow {
   last_sent_at: number | null;
 }
 
-/** What a browser's push service looks like: an https URL and nothing else, since the server POSTs to whatever it is given. */
+/**
+ * What a browser's push service looks like: an https URL on a public host name and nothing else, since the server POSTs
+ * to whatever it is given. No address, no port, no name of the local network: a signed-in person must not aim the
+ * server at the box itself or at a neighbour. (A public name can still resolve inward; all it ever gets is an encrypted POST.)
+ */
 export function isPushEndpoint(raw: unknown): boolean {
   if (typeof raw !== 'string' || raw.length > 2048) return false;
   try {
     const url = new URL(raw);
-    return url.protocol === 'https:' && !url.username && !url.password;
+    const host = url.hostname.toLowerCase().replace(/\.$/, '');
+    if (isIP(host.replace(/^\[|\]$/g, '')) || !host.includes('.') || /(^|\.)(localhost|local|internal|lan|home|arpa)$/.test(host)) return false;
+    return url.protocol === 'https:' && !url.username && !url.password && url.port === '';
   } catch {
     return false;
   }

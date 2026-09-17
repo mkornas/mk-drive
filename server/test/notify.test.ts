@@ -54,6 +54,22 @@ test('an endpoint is an https URL and nothing else; a device gets a readable nam
   assert.equal(isPushEndpoint('http://fcm.googleapis.com/x'), false, 'the server POSTs there: https only');
   assert.equal(isPushEndpoint('https://user:pass@example.com/x'), false);
   assert.equal(isPushEndpoint('file:///etc/passwd'), false);
+  // never the box itself or a neighbour: no addresses, no port, no local names
+  for (const inward of [
+    'https://127.0.0.1/x',
+    'https://192.168.1.1/x',
+    'https://[::1]/x',
+    'https://localhost/x',
+    'https://nas/x',
+    'https://nas.local/x',
+    'https://router.lan/x',
+    'https://db.internal/x',
+    'https://fcm.googleapis.com:8443/x',
+    'https://LOCALHOST./x',
+  ])
+    assert.equal(isPushEndpoint(inward), false, inward);
+  for (const real of ['https://updates.push.services.mozilla.com/wpush/v2/abc', 'https://web.push.apple.com/abc', 'https://wns2-par02p.notify.windows.com/w/?token=abc'])
+    assert.equal(isPushEndpoint(real), true, real);
   assert.equal(isPushEndpoint('https://' + 'x'.repeat(3000)), false);
   assert.equal(isPushEndpoint(42), false);
   assert.equal(deviceName('Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0'), 'Firefox on Linux');
