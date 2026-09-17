@@ -194,8 +194,12 @@ filesystem as you open it; nothing is indexed.
 - **Public link** — select a file or folder, *Share*, *Create link*: a lifetime,
   an optional password, and for folders what the link allows: browse inside,
   download a single zip, or add files only. Links open at `/s/<id>` with no
-  account. They die when removed (**Settings → Links**), when they expire, or
-  when the owner loses access.
+  account. They die when removed (**Settings → Links**), when they expire, when
+  the owner loses access, or when what they point at is deleted. Renamed or
+  moved in the drive (the app or WebDAV), a file or folder keeps its links and
+  the people it is shared with; moved by other means (SMB, a shell), the drive
+  does not see it and the link stays with the old path. A link never serves
+  names that start with a dot, the same ones its listing and zip leave out.
 - **File request** — the *add files only* link. Visitors get a drop zone and
   nothing else: they cannot list, open or download anything, and a name that
   is already taken gets a numbered sibling rather than replacing the file.
