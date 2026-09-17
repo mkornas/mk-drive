@@ -121,6 +121,8 @@ export function registerShareRoutes(
     const base = root(row);
     if (!rel) return { ...base, rel: [] };
     const relDp = parseDrivePath(`x/${rel}`);
+    // what the listing and the zip leave out is not served by name either: a visitor must not get `.env` or `.git/config` by guessing
+    if (relDp.segments.some((s) => s.startsWith('.'))) throw notFound();
     const segments = [...base.dp.segments, ...relDp.segments];
     if (locations.isHidden(base.loc, segments)) throw notFound();
     return { loc: base.loc, dp: { location: base.dp.location, segments, path: joinDrivePath(base.dp.location, segments) }, rel: relDp.segments };

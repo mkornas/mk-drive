@@ -88,7 +88,11 @@ test('share a folder with a password: locked until unlocked, listing hides dotfi
   const deeper = (await app.inject({ url: `/api/s/${share.id}/ls?path=sub`, headers: { cookie } })).json() as Listing;
   assert.deepEqual(deeper.entries.map((e) => e.path), ['sub/b.txt']);
   assert.equal((await app.inject({ url: `/api/s/${share.id}/file?path=sub/b.txt`, headers: { cookie } })).body, 'BB');
-  assert.equal((await app.inject({ url: `/api/s/${share.id}/file?path=.secret`, headers: { cookie } })).statusCode, 200, 'direct dotfile fetch inside the share is fine');
+  // what the listing hides is not served to a guess either, at any depth, as a file or a thumbnail
+  for (const path of ['.secret', 'sub/.hidden/x.txt', '.git/config'])
+    assert.equal((await app.inject({ url: `/api/s/${share.id}/file?path=${path}`, headers: { cookie } })).statusCode, 404, path);
+  assert.equal((await app.inject({ url: `/api/s/${share.id}/thumb?path=.cover.png`, headers: { cookie } })).statusCode, 404);
+  assert.equal((await app.inject({ url: `/api/s/${share.id}/ls?path=.hidden`, headers: { cookie } })).statusCode, 404);
   assert.equal((await app.inject({ url: `/api/s/${share.id}/file?path=../report.pdf`, headers: { cookie } })).statusCode, 400);
   const zip = await app.inject({ url: `/api/s/${share.id}/zip`, headers: { cookie } });
   assert.equal(zip.statusCode, 200);
