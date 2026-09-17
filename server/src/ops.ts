@@ -79,10 +79,29 @@ export class Ops {
     return withPolicy(name, policy === 'replace' ? 'fail' : policy, (n) => this.exists(loc.provider, [...dir, n]), (n) => loc.provider.mkdir([...dir, n]));
   }
 
+  /**
+   * Public links and shares with people are kept by path. When the drive itself moves what they point at, they go
+   * along (whatever was at the new path before was replaced, and its links end); otherwise the old path, taken by
+   * something new later, would open that to whoever holds the old link.
+   */
+  relink(from: string, to: string): void {
+    if (from === to) return;
+    this.unlink(to);
+    for (const table of ['shares', 'user_shares'])
+      this.db.prepare(`UPDATE ${table} SET path = ? || substr(path, ?) WHERE path = ? OR substr(path, 1, ?) = ?`).run(to, from.length + 1, from, from.length + 1, `${from}/`);
+  }
+
+  /** What was at `path` is gone (to the trash, or replaced): the links to it and to anything inside end. */
+  unlink(path: string): void {
+    for (const table of ['shares', 'user_shares']) this.db.prepare(`DELETE FROM ${table} WHERE path = ? OR substr(path, 1, ?) = ?`).run(path, path.length + 1, `${path}/`);
+  }
+
   async rename(loc: Mounted, segments: readonly string[], name: string, policy: ConflictPolicy): Promise<string> {
     const dir = segments.slice(0, -1);
     if (segments[segments.length - 1] === name) return name;
-    return withPolicy(name, policy, (n) => this.exists(loc.provider, [...dir, n]), (n, replace) => loc.provider.rename(segments, [...dir, n], { replace }));
+    const final = await withPolicy(name, policy, (n) => this.exists(loc.provider, [...dir, n]), (n, replace) => loc.provider.rename(segments, [...dir, n], { replace }));
+    this.relink(joinDrivePath(loc.cfg.name, segments), joinDrivePath(loc.cfg.name, [...dir, final]));
+    return final;
   }
 
   /** Move `segments` from `src` into directory `dir` of `dst`; cross-location = copy then remove. */
@@ -90,10 +109,13 @@ export class Ops {
     const name = segments[segments.length - 1];
     if (src === dst) {
       if (dir.join('/') === segments.slice(0, -1).join('/')) return name;
-      return withPolicy(name, policy, (n) => this.exists(dst.provider, [...dir, n]), (n, replace) => src.provider.rename(segments, [...dir, n], { replace }));
+      const moved = await withPolicy(name, policy, (n) => this.exists(dst.provider, [...dir, n]), (n, replace) => src.provider.rename(segments, [...dir, n], { replace }));
+      this.relink(joinDrivePath(src.cfg.name, segments), joinDrivePath(dst.cfg.name, [...dir, moved]));
+      return moved;
     }
     const final = await this.copy(src, segments, dst, dir, policy);
     await src.provider.remove(segments);
+    this.relink(joinDrivePath(src.cfg.name, segments), joinDrivePath(dst.cfg.name, [...dir, final]));
     return final;
   }
 
@@ -122,6 +144,7 @@ export class Ops {
       throw new HttpError(409, `this location cannot keep a trash folder (${(e as Error).message}); delete it on the other side`);
     }
     await loc.provider.rename(segments, [...TRASH_DIR, `${id}__${name}`]);
+    this.unlink(joinDrivePath(loc.cfg.name, segments));
     const entry: TrashEntry = { id, location: loc.cfg.name, original: joinDrivePath(loc.cfg.name, segments), name, kind: st.kind, size: st.size, deletedAt: Date.now(), deletedBy: who.email };
     this.db.prepare('INSERT INTO trash (id, location, original, name, kind, size, deleted_at, deleted_by, deleted_by_email) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, entry.location, entry.original, name, st.kind, st.size, entry.deletedAt, who.id, who.email);
     return entry;

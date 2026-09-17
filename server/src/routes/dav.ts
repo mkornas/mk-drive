@@ -267,6 +267,7 @@ export function registerDavRoutes(app: FastifyInstance, access: Access, location
               await (moving ? ops.move : ops.copy).call(ops, src.loc, src.dp.segments, dst.loc, dstDir, policy);
               const landed = [...dstDir, src.dp.segments[src.dp.segments.length - 1]];
               await dst.loc.provider.rename(landed, dst.dp.segments, { replace: policy === 'replace' });
+              if (moving) ops.relink([dst.dp.location, ...landed].join('/'), dst.dp.path);
             }
           } catch (e) {
             if (e instanceof ExistsError || (e as { statusCode?: number }).statusCode === 409) throw new HttpError(412, 'destination exists');

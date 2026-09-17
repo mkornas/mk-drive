@@ -165,3 +165,52 @@ test('versions from a snapshot tree: listed newest first, duplicates of the curr
   const locs = (await app.inject({ url: '/api/locations', headers: { cookie: admin } })).json();
   assert.equal(locs[0].capabilities.versions, true);
 });
+
+test('links follow what they point at: renamed or moved they go along, deleted they end, and a new folder of the old name opens to nobody', async () => {
+  const ok = async (o: InjectOptions) => {
+    const res = await app.inject(o);
+    assert.ok(res.statusCode < 300, `${o.url}: ${res.statusCode} ${res.body}`);
+    return res;
+  };
+  await mkdir(join(base, 'docs', 'trip', 'day1'), { recursive: true });
+  await mkdir(join(base, 'docs', 'archive'));
+  await writeFile(join(base, 'docs', 'trip', 'day1', 'p.txt'), 'TRIP');
+  await ok(json('POST', '/api/users', { email: 'sam@example.com', name: 'Sam', password: PW, grants: {} }));
+  const samCookie = String((await app.inject(json('POST', '/api/login', { email: 'sam@example.com', password: PW }, ''))).headers['set-cookie']).split(';')[0];
+  const link = (await ok(json('POST', '/api/shares', { path: 'Docs/trip' }))).json() as Share;
+  const inner = (await ok(json('POST', '/api/shares', { path: 'Docs/trip/day1/p.txt' }))).json() as Share;
+  await ok(json('POST', '/api/user-shares', { path: 'Docs/trip/day1', email: 'sam@example.com' }));
+  const body = async (id: string, path = '') => (await app.inject({ url: `/api/s/${id}/file${path ? `?path=${path}` : ''}` })).body;
+  const samSees = async (path: string) => (await app.inject({ url: `/api/ls?path=${path}`, headers: { cookie: samCookie } })).statusCode;
+
+  // renamed: both links and Sam's share point at the new name; a new folder under the old name belongs to no link
+  await ok(json('POST', '/api/rename', { path: 'Docs/trip', name: 'holiday' }));
+  await mkdir(join(base, 'docs', 'trip', 'day1'), { recursive: true });
+  await writeFile(join(base, 'docs', 'trip', 'day1', 'p.txt'), 'SOMETHING ELSE');
+  assert.equal(await body(link.id, 'day1/p.txt'), 'TRIP');
+  assert.equal(await body(inner.id), 'TRIP');
+  assert.equal(await samSees('Docs/holiday/day1'), 200);
+  assert.equal(await samSees('Docs/trip/day1'), 404);
+
+  // moved into another folder: the same
+  await ok(json('POST', '/api/move', { paths: ['Docs/holiday'], to: 'Docs/archive' }));
+  assert.equal(await body(link.id, 'day1/p.txt'), 'TRIP');
+  assert.equal(await samSees('Docs/archive/holiday/day1'), 200);
+  assert.deepEqual(
+    ((await ok({ url: '/api/shares', headers: { cookie: admin } })).json() as Share[]).filter((s) => [link.id, inner.id].includes(s.id)).map((s) => s.path).sort(),
+    ['Docs/archive/holiday', 'Docs/archive/holiday/day1/p.txt'],
+  );
+
+  // deleted: the links to it and to what is inside end, and stay ended when something new takes the path
+  await ok(json('POST', '/api/delete', { paths: ['Docs/archive/holiday'] }));
+  await mkdir(join(base, 'docs', 'archive', 'holiday', 'day1'), { recursive: true });
+  await writeFile(join(base, 'docs', 'archive', 'holiday', 'day1', 'p.txt'), 'NEW');
+  assert.equal((await app.inject({ url: `/api/s/${link.id}` })).statusCode, 404);
+  assert.equal((await app.inject({ url: `/api/s/${inner.id}` })).statusCode, 404);
+  assert.equal(await samSees('Docs/archive/holiday/day1'), 404);
+  // a neighbour whose name only starts the same is not touched
+  const near = (await ok(json('POST', '/api/shares', { path: 'Docs/album' }))).json() as Share;
+  await mkdir(join(base, 'docs', 'alb'));
+  await ok(json('POST', '/api/delete', { paths: ['Docs/alb'] }));
+  assert.equal((await app.inject({ url: `/api/s/${near.id}` })).statusCode, 200);
+});

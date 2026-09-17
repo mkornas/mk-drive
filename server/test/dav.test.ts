@@ -142,8 +142,11 @@ test('COPY and MOVE honour Destination and Overwrite; DELETE goes to the trash',
   assert.equal(await readFile(join(base, 'docs', 'photos', 'hello-copy.txt'), 'utf8'), 'milk, eggs');
   const rename = await app.inject(dav('MOVE', '/dav/Docs/photos/hello-copy.txt', { headers: { destination: '/dav/Docs/photos/renamed.txt' } }));
   assert.equal(rename.statusCode, 201);
+  // a public link to it goes along, through the rename and through the move to another folder under another name
+  const link = (await app.inject(json('POST', '/api/shares', { path: 'Docs/photos/renamed.txt' }, admin))).json() as { id: string };
   const move = await app.inject(dav('MOVE', '/dav/Docs/photos/renamed.txt', { headers: { destination: '/dav/Docs/notes/moved.txt' } }));
   assert.equal(move.statusCode, 201);
+  assert.equal((await app.inject({ url: `/api/s/${link.id}/file` })).body, 'milk, eggs');
   assert.equal(await readFile(join(base, 'docs', 'notes', 'moved.txt'), 'utf8'), 'milk, eggs');
   assert.equal(
     (await app.inject(dav('MOVE', '/dav/Docs/notes/moved.txt', { headers: { destination: '/dav/Media/moved.txt' } }))).statusCode,
