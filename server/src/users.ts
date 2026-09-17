@@ -31,6 +31,9 @@ export async function verifyPassword(password: string, stored: string): Promise<
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
+/** A hash nobody's password matches, made on first use: what `authenticate` checks against when there is no account to check. */
+let decoy: Promise<string> | null = null;
+
 interface UserRow {
   id: number;
   email: string;
@@ -157,8 +160,11 @@ export class Users {
   /** Email + password → user, or null. Updates last_login_at on success. */
   async authenticate(email: string, password: string): Promise<User | null> {
     const row = this.db.prepare('SELECT * FROM users WHERE email = ?').get(email.trim()) as UserRow | undefined;
-    if (!row || row.disabled) return null;
-    if (!(await verifyPassword(password, row.password_hash))) return null;
+    // one scrypt whoever asks: no account, a disabled one or one without a password must take as long as a wrong password,
+    // or the time alone says which emails have an account here
+    const usable = !!row && !row.disabled && row.password_hash.startsWith('scrypt$');
+    const right = await verifyPassword(password, usable ? row.password_hash : await (decoy ??= hashPassword(randomBytes(16).toString('hex'))));
+    if (!row || !usable || !right) return null;
     this.db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(Date.now(), row.id);
     return this.toUser(row);
   }

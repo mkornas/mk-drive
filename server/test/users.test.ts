@@ -33,3 +33,22 @@ test('grants: admins get everything, members only what they were given', async (
   users.setGrants(m.id, { Media: 'write' });
   assert.deepEqual(users.get(m.id)!.grants, { Media: 'write' });
 });
+
+test('authenticate: no account, a disabled one and a wrong password all cost one scrypt, so the time does not say which emails exist', async () => {
+  const users = new Users(openDb(':memory:'));
+  await users.create({ email: 'real@example.com', name: 'Real', role: 'admin', password: 'correct horse battery' });
+  const off = await users.create({ email: 'off@example.com', name: 'Off', role: 'member', password: 'correct horse battery' });
+  users.update(off.id, { disabled: true });
+  assert.equal((await users.authenticate('real@example.com', 'correct horse battery'))?.email, 'real@example.com');
+  assert.equal(await users.authenticate('off@example.com', 'correct horse battery'), null, 'disabled stays refused with the right password');
+  assert.equal(await users.authenticate('nobody@example.com', 'correct horse battery'), null);
+  const time = async (email: string) => {
+    const t = performance.now();
+    for (let i = 0; i < 3; i++) await users.authenticate(email, 'a wrong password');
+    return performance.now() - t;
+  };
+  const known = await time('real@example.com');
+  // before: 0 ms against ~60 ms. Half is a wide margin for a busy machine
+  assert.ok((await time('nobody@example.com')) > known / 2, 'no account answers as slowly as a wrong password');
+  assert.ok((await time('off@example.com')) > known / 2, 'a disabled account too');
+});
