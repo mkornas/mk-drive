@@ -137,7 +137,8 @@ export class LocalProvider implements StorageProvider {
 
   /** The path inside the snapshot, only when no symlink is on the way (the same rule as the live tree). */
   private async snapshotPath(snapshot: string, segments: readonly string[]): Promise<string> {
-    if (!/^[A-Za-z0-9._:-]{1,200}$/.test(snapshot)) throw new Error('bad snapshot name');
+    // a name, never `.` or `..`: those are the snapshot directory and `.zfs` themselves
+    if (!/^[A-Za-z0-9._:-]{1,200}$/.test(snapshot) || /^\.+$/.test(snapshot)) throw new Error('bad snapshot name');
     const snapRoot = await realpath(join(this.root, '.zfs', 'snapshot', snapshot));
     const abs = join(snapRoot, ...segments);
     if ((await realpath(abs)) !== abs) throw new Error('not found');

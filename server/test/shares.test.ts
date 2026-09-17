@@ -156,6 +156,9 @@ test('versions from a snapshot tree: listed newest first, duplicates of the curr
   );
   const old = await app.inject({ url: '/api/versions/file?path=' + encodeURIComponent('Docs/album/a.txt') + '&snapshot=auto-docs-2026-09-09_03-30', headers: { cookie: admin } });
   assert.equal(old.body, 'A');
+  // `..` as the snapshot is `.zfs` itself, and a path could then walk the snapshot tree by hand: a name only
+  for (const [path, snapshot] of [['Docs/snapshot/auto-docs-2026-09-09_03-30/album/a.txt', '..'], ['Docs/auto-docs-2026-09-09_03-30/album/a.txt', '.']])
+    assert.equal((await app.inject({ url: `/api/versions/file?path=${encodeURIComponent(path)}&snapshot=${snapshot}`, headers: { cookie: admin } })).statusCode, 404, snapshot);
   const restored = await app.inject(json('POST', '/api/versions/restore', { path: 'Docs/album/a.txt', snapshot: 'auto-docs-2026-09-09_03-30' }));
   assert.equal(restored.json().path, 'Docs/album/a (2).txt');
   assert.equal(await readFile(join(base, 'docs', 'album', 'a (2).txt'), 'utf8'), 'A');
