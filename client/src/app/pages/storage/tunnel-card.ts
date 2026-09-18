@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, DestroyRef, inject, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { MkButton } from '@mk-kit/ui/button';
 import { MkTag } from '@mk-kit/ui/data';
 import { MkAlert, MkDialogService, MkToastService } from '@mk-kit/ui/feedback';
@@ -6,6 +7,7 @@ import { MkFormField, MkPasswordInput } from '@mk-kit/ui/forms';
 import { MkIcon } from '@mk-kit/ui/icon';
 import type { Tunnel } from '../../../../../shared/nas';
 import { ApiService, errorMessage } from '../../core/api.service';
+import { DriveService } from '../../core/drive.service';
 import { ago } from '../../core/format';
 import { ms } from './load';
 
@@ -19,7 +21,7 @@ type TunnelView = Tunnel & { viaTunnel: boolean };
 @Component({
   selector: 'app-tunnel-card',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [MkButton, MkTag, MkAlert, MkFormField, MkPasswordInput, MkIcon],
+  imports: [MkButton, MkTag, MkAlert, MkFormField, MkPasswordInput, MkIcon, RouterLink],
   template: `
     <section class="card">
       <div class="head">
@@ -77,6 +79,14 @@ type TunnelView = Tunnel & { viaTunnel: boolean };
               }
             </mk-alert>
           }
+        }
+
+        @if (t.configured && passwordEverywhereWithSso()) {
+          <p class="muted small">
+            The password form is offered through this tunnel too, and wrong passwords for an address pause its sign-in, so someone who knows the address can
+            keep it paused from outside. Single sign-on is on: <a routerLink="/settings/sign-in">Settings → Sign-in</a> can limit passwords to the local
+            network.
+          </p>
         }
 
         @if (t.viaTunnel) {
@@ -170,6 +180,12 @@ type TunnelView = Tunnel & { viaTunnel: boolean };
 })
 export class TunnelCard {
   private readonly api = inject(ApiService);
+  private readonly drive = inject(DriveService);
+  /** Passwords everywhere while single sign-on is on: the one case where limiting them to the local network costs nothing and closes the door from outside. */
+  protected readonly passwordEverywhereWithSso = computed(() => {
+    const m = this.drive.meta();
+    return !!m?.sso && !!m.passwordLogin && !m.passwordLoginLocal;
+  });
   private readonly toast = inject(MkToastService);
   private readonly dialog = inject(MkDialogService);
   protected readonly ago = ago;

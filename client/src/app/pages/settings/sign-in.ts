@@ -139,6 +139,10 @@ import { SettingsShell } from './shell';
             @switch (mode()) {
               @case ('on') {
                 Anyone who reaches the drive, at home or from the internet, gets the password form.
+                @if (s.source) {
+                  From the internet that form can be held shut: wrong passwords for an address pause its sign-in for up to half a minute, so someone who knows
+                  the address can keep it paused (single sign-on is not affected). With single sign-on on, <em>Local network only</em> avoids that.
+                }
               }
               @case ('local') {
                 Only from this network (private and loopback addresses). From the internet, a Cloudflare Tunnel included, the sign-in page offers single sign-on

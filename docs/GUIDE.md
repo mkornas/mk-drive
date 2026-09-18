@@ -111,7 +111,13 @@ Three doors, all optional beyond the first:
   addresses, never through Cloudflare: the internet then sees single sign-on
   alone), or nowhere (only once single sign-on is on). `DRIVE_PASSWORD_LOGIN=on|local|off`
   in the environment sets it instead, and the page shows it read-only. App
-  passwords work from anywhere in every mode.
+  passwords work from anywhere in every mode. Wrong passwords pause sign-in
+  for the address tried, up to half a minute a time, so on a drive that is
+  reachable from the internet someone who knows an address can keep its
+  password form paused from outside (single sign-on and app passwords are
+  not affected). Once single sign-on is on, *Local network only* closes that
+  door: the internet then sees single sign-on alone, and the password form
+  still works at home.
 - **Single sign-on** — any OpenID Connect provider (Pocket ID, Authelia,
   Keycloak, …). An admin sets it on **Settings → Sign-in**: register the
   client at the provider with the redirect URI and logout URL that page shows
