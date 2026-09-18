@@ -1,6 +1,6 @@
 ---
 kanban-plugin: board
-updated: 2026-09-17
+updated: 2026-09-18
 ---
 
 # mk-drive
@@ -30,7 +30,6 @@ One card per line, ranked top-down inside each column. `#p0`..`#p3` = priority, 
 - [ ] *Share link limits** a download count limit on a public link, and the page saying who shared it; expiry and a password already exist #p3 #sharing
 - [ ] *Drop-box links** a link that lets someone without an account upload into one folder (family photos), with a size cap and nothing else visible #p3 #sharing
 - [ ] **iOS: the same file icons** the iPhone app draws its own icons; match the drive's mapping (documents, code, ebooks, fonts, disk images, installers) and the four conventional colours so a folder looks the same in both #p3 #ios
-- [ ] *Password sign-in can be held shut from outside** failed logins throttle email:<address> for up to 30 s, so anyone who knows an address keeps its password form blocked through the tunnel (SSO unaffected); no throttle avoids this without letting many addresses guess one account faster. Recommend password sign-in = local when a tunnel and SSO are set up: say so on Settings → Sign-in and in the guide, maybe suggest it when the tunnel is turned on #p2 #security
 - [ ] *Finish the audit's reading** the Angular pages, @mk-kit/auth/server (the Access verifier and the OIDC routes) and the second half of routes/dav.ts were only surveyed for guards, not read #p3 #security
 
 ## Later
@@ -39,6 +38,7 @@ One card per line, ranked top-down inside each column. `#p0`..`#p3` = priority, 
 - [ ] **iOS app** File Provider extension over /api (ETags, chunked uploads); Swift, separate repo, after the web app is stable #p3 #beyond
 
 ## Done
+- [x] *Password sign-in can be held shut from outside** failed logins throttle email:<address> for up to 30 s, so anyone who knows an address keeps its password form blocked through the tunnel (SSO unaffected); no throttle avoids this without letting many addresses guess one account faster. Recommend password sign-in = local when a tunnel and SSO are set up: say so on Settings → Sign-in and in the guide, maybe suggest it when the tunnel is turned on #p2 #security [[password-sign-in-can-be-held-shut-from-outside-failed-logins]]
 - [x] **Security audit after going public** what a visitor reaches through the tunnel first (public links, file requests, file serving, login, SSO), then uploads, WebDAV, connectors, push, thumbnails and the client's HTML sinks; five fixes with tests: sign-in takes as long for an email with no account, a public link serves no dot-names, links and shares follow a rename or move and end with a delete, a snapshot name is never . or .., a push endpoint is a public host name #p1 #security [[security-audit-after-going-public]]
 - [x] *File-type icons** one mapping by type and extension instead of five buckets: Word, Excel, PowerPoint and ODF, code by language, ebooks, fonts, subtitles, disk images, installers, and a colour accent per family so a mixed folder reads at a glance; one place (core/file-kind.ts), used by the grid, the list, search, trash, shares and the preview; the same set in the iPhone app #p2 #ui [[file-type-icons-one-mapping-by-type-and-extension-instead-of]]
 - [x] *Alerts from the box, on the phone** the drive is where a NAS alert reaches its owner: subscribe to web push, show what the agent reports (degraded pool, failing disk, failed scrub or backup, an update waiting) as a badge and a list, and let each kind be turned off; needs the mk-nas alert engine first #p1 #alerts #nas [[alerts-from-the-box-on-the-phone-the-drive-is-where-a-nas-al]]
