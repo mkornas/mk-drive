@@ -37,6 +37,8 @@ services:
       # DRIVE_DEMO_PASSWORD: a-password-only-you-share  # unset: demo-drive-2026, printed on the sign-in page
       # Optional explicit locations (JSON array), instead of discovering /locations/*.
       DRIVE_LOCATIONS: ${DRIVE_LOCATIONS:-}
+      # The suite's app registry (JSON): the header shows an app switcher listing the other apps. Empty = none.
+      DRIVE_APPS_URL: ${DRIVE_APPS_URL:-}
       # NAS mode (a host running mk-nas): the agent's socket, mounted below; admins get the Storage section.
       # Notifications: a push service can contact this address about the drive's requests. The signing keys are made
       # once and kept in the database, so nothing else is needed for notifications to work.

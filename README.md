@@ -170,6 +170,7 @@ tool anyway.
 | `DRIVE_ACCESS_TEAM` / `DRIVE_ACCESS_AUD` | — | Cloudflare Access team and application audience |
 | `DRIVE_TRUSTED_PROXIES` | `127.0.0.0/8,::1/128` | Proxies whose `X-Forwarded-For` and `CF-Connecting-IP` are believed (throttling, audit). With a tunnel, include where `cloudflared` connects from, or every visitor through it shares one address |
 | `DRIVE_HIDE` | `.zfs,.mk-drive,.trash` | Names never shown anywhere |
+| `DRIVE_APPS_URL` | — | The suite's app registry (JSON, e.g. `https://home.example.com/apps.json`): the header gets an app switcher listing the other apps, and the registry's origin is allowed by the page's CSP. Empty = no switcher |
 | `DRIVE_TRASH_DAYS` | `30` | How long deleted items stay in the trash |
 | `DRIVE_STAT_CONCURRENCY` | `32` | Parallel `stat()` calls per listing (network filesystems like this bounded) |
 | `DRIVE_THUMB_DIR` / `DRIVE_THUMB_CACHE_MB` | `<data dir>/thumbs` / `512` | Thumbnail cache location and size cap |
