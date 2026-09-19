@@ -35,6 +35,20 @@ function envPasswordLogin(): PasswordLoginMode | '' {
   return v;
 }
 
+/** An absolute http(s) URL, or empty when unset. */
+function envUrl(name: string): string {
+  const v = env(name, '');
+  if (v === '') return '';
+  let url: URL;
+  try {
+    url = new URL(v);
+  } catch {
+    throw new Error(`${name} must be an absolute URL`);
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error(`${name} must be an http(s) URL`);
+  return v;
+}
+
 function envList(name: string, fallback: string): string[] {
   const raw = env(name, fallback);
   if (raw.trim().toLowerCase() === 'none') return [];
@@ -165,6 +179,9 @@ export const config = {
   /** Demo mode: the demo account's password. Set one and it is no longer printed on the sign-in page, so only whoever
    * was told it can open the demo (an app review, a customer). Unset, the well-known one is shown to every visitor. */
   demoPassword: env('DRIVE_DEMO_PASSWORD', ''),
+
+  /** The suite's app registry (JSON) behind the header's app switcher; its origin is let through the CSP. Empty = no switcher. */
+  appsUrl: envUrl('DRIVE_APPS_URL'),
 
   /** Days a deleted item stays in the trash. */
   trashDays: envInt('DRIVE_TRASH_DAYS', 30),

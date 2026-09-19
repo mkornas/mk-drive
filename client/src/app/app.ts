@@ -8,7 +8,7 @@ import { MkIcon } from '@mk-kit/ui/icon';
 import { MkAvatar } from '@mk-kit/ui/data';
 import { MkDialogService, MkToastContainer, MkToastService } from '@mk-kit/ui/feedback';
 import { SwUpdate } from '@angular/service-worker';
-import { MkAppShell, type MkCommand, MkCommandPalette, MkMenu, MkMenuItem, MkMenuTrigger, MkNavGroup, MkNavItem, MkNavList } from '@mk-kit/ui/navigation';
+import { MkAppShell, MkAppSwitcher, type MkCommand, MkCommandPalette, MkMenu, MkMenuItem, MkMenuTrigger, MkNavGroup, MkNavItem, MkNavList } from '@mk-kit/ui/navigation';
 import { ApiService, errorMessage } from './core/api.service';
 import { DriveService } from './core/drive.service';
 import { bytes } from './core/format';
@@ -44,13 +44,14 @@ const SETTINGS: SettingsLink[] = [
   { label: 'Activity', path: '/settings/activity', icon: 'history', admin: true },
 ];
 
-/** The frame: header with brand, theme toggle and account menu; sidebar with the locations and settings. */
+/** The frame: header with brand, theme toggle, account menu and the suite's app switcher; sidebar with the locations and settings. */
 @Component({
   selector: 'app-root',
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     RouterOutlet,
     MkAppShell,
+    MkAppSwitcher,
     MkNavList,
     MkNavGroup,
     MkNavItem,
@@ -126,6 +127,9 @@ const SETTINGS: SettingsLink[] = [
                 <mk-menu-item (action)="drive.signOut()"><mk-icon name="log-out" size="sm" /> Sign out</mk-menu-item>
               }
             </mk-menu>
+          }
+          @if (drive.meta()?.apps; as apps) {
+            <mk-app-switcher [src]="apps" current="drive" />
           }
         </div>
 

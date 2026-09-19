@@ -66,6 +66,7 @@ export function registerAccountRoutes(
     demo: cfg.demo || undefined,
     demoAccount: cfg.demo && demoPasswordOf(cfg).shown ? { email: DEMO_EMAIL, password: DEMO_PASSWORD } : undefined,
     sso: sso?.conf ? { name: sso.conf.name } : undefined,
+    apps: cfg.appsUrl || undefined,
     passwordLogin: passwordLoginAllowed(req, cfg, settings),
     passwordLoginLocal: resolvePasswordLogin(cfg, settings).mode === 'local' || undefined,
     nas: cfg.nasSocket ? true : undefined,

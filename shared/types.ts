@@ -259,6 +259,8 @@ export interface Meta {
   demoAccount?: { email: string; password: string };
   /** Single sign-on is configured: show a "Sign in with <name>" button that goes to `/auth/login`. */
   sso?: { name: string };
+  /** The suite's app registry (`DRIVE_APPS_URL`): the header shows the app switcher fed from it. Unset = no switcher. */
+  apps?: string;
   /** The password form is offered to this visitor (`DRIVE_PASSWORD_LOGIN` or Settings → Sign-in may limit it to the local network or turn it off). */
   passwordLogin: boolean;
   /** Password sign-in is limited to the local network (`local`), whoever asks: with `passwordLogin` false the visitor is outside it, and the page can say it works at home. */

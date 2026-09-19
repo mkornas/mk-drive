@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance, InjectOptions } from 'fastify';
 import { config, type Config } from '../src/config.ts';
-import { createApp } from '../src/app.ts';
+import { appCsp, createApp } from '../src/app.ts';
 import { parseRange } from '../src/routes/files.ts';
 import type { Entry, Identity, Listing, Meta, User } from '../../shared/types.ts';
 
@@ -89,6 +89,23 @@ test('the drive can be renamed by an admin; the name rides on meta; empty puts t
   const reset = await app.inject(json('PUT', '/api/settings/name', { name: '' }, admin));
   assert.deepEqual(reset.json(), { name: null });
   assert.equal(((await app.inject({ url: '/api/meta' })).json() as Meta).name, undefined);
+});
+
+test('the app registry rides on meta only when DRIVE_APPS_URL is set, and its origin is let through the CSP', async () => {
+  assert.equal(((await app.inject({ url: '/api/meta' })).json() as Meta).apps, undefined);
+  assert.match(appCsp({ appsUrl: '' }), /; connect-src 'self'; /);
+  assert.match(appCsp({ appsUrl: 'https://home.example.com/apps.json' }), /; connect-src 'self' https:\/\/home\.example\.com; /);
+
+  const withApps = await createApp(cfgWith({ appsUrl: 'https://home.example.com/apps.json' }), { logger: false });
+  try {
+    assert.equal(
+      ((await withApps.inject({ url: '/api/meta' })).json() as Meta).apps,
+      'https://home.example.com/apps.json',
+      'visible before signing in: the header is there too',
+    );
+  } finally {
+    await withApps.close();
+  }
 });
 
 test('admin sees every location; listing rules; file streaming', async () => {

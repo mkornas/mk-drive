@@ -36,20 +36,24 @@ import { migrateShareAccess, registerNasMonitorRoute, registerNasRoutes } from '
 import { registerSsoSettingsRoutes } from './routes/sso-settings.ts';
 
 /** What the browser may load for the app itself (the file endpoint has its own, stricter, rules). */
-const APP_CSP = [
-  "default-src 'self'",
-  "script-src 'self'",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "media-src 'self' blob:",
-  "font-src 'self' data:",
-  "connect-src 'self'",
-  "frame-src 'self'",
-  "frame-ancestors 'self'",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "form-action 'self'",
-].join('; ');
+export function appCsp(cfg: Pick<Config, 'appsUrl'>): string {
+  // the app switcher fetches the suite's registry from wherever DRIVE_APPS_URL points
+  const connect = ["'self'", ...(cfg.appsUrl ? [new URL(cfg.appsUrl).origin] : [])].join(' ');
+  return [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "media-src 'self' blob:",
+    "font-src 'self' data:",
+    `connect-src ${connect}`,
+    "frame-src 'self'",
+    "frame-ancestors 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join('; ');
+}
 
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 /** Mutations the demo drive refuses (see the hook below). */
@@ -207,7 +211,8 @@ export async function createApp(cfg: Config, opts: { logger?: boolean } = {}): P
     // wildcard: files are resolved per request (a rebuilt client works without a restart);
     // anything that is not a file and not /api falls back to the SPA's index.html.
     await app.register(fastifyStatic, { root: cfg.staticDir, prefix: '/', wildcard: true, index: false, maxAge: '1h' });
-    const sendIndex = (reply: FastifyReply) => reply.header('Cache-Control', 'no-cache').header('Content-Security-Policy', APP_CSP).sendFile('index.html');
+    const csp = appCsp(cfg);
+    const sendIndex = (reply: FastifyReply) => reply.header('Cache-Control', 'no-cache').header('Content-Security-Policy', csp).sendFile('index.html');
     app.get('/', async (_req, reply) => sendIndex(reply));
     app.setNotFoundHandler((req, reply) => {
       if (req.method !== 'GET' || req.url.startsWith('/api/')) return reply.code(404).send({ ok: false, message: 'not found' });

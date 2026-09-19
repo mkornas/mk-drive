@@ -60,7 +60,7 @@ assume it is present.
   realpath must be exactly the typed path under the root, so symlinks inside a location are never followed (not listed,
   not opened, not written through); hidden names are refused, not just unlisted. Every response carrying file bytes
   gets its headers from `serve-headers.ts` (nosniff, and a sandbox + download for anything a browser could run).
-- `client/` — Angular 22, standalone, zoneless, signals, `@mk-kit/ui` 0.58.
+- `client/` — Angular 22, standalone, zoneless, signals, `@mk-kit/ui` 0.60.
   Drive paths in URLs: `/d/<location>/<path>`. Pages in `src/app/pages`,
   reusable bits in `src/app/shared`, services in `src/app/core`.
 - One image (`Dockerfile`), built by `.github/workflows/deploy.yml` to GHCR.
