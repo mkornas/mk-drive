@@ -9,6 +9,7 @@ import type { ConfigBackup, Dataset, Job, Replication } from '../../../../../sha
 import { ApiService, errorMessage } from '../../core/api.service';
 import { ago, bytes, dateTime } from '../../core/format';
 import { StorageShell } from './shell';
+import { OffsiteCard } from './offsite-card';
 import { typedConfirm } from './confirm';
 import { loader, ms } from './load';
 import { ReplicationDialog, type ReplicationDialogData } from './replication-dialog';
@@ -17,7 +18,7 @@ import { ReplicationDialog, type ReplicationDialogData } from './replication-dia
 @Component({
   selector: 'app-storage-replication',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [StorageShell, MkButton, MkTag, MkProgressBar, MkIcon, MkEmptyState, MkSelect],
+  imports: [StorageShell, MkButton, MkTag, MkProgressBar, MkIcon, MkEmptyState, MkSelect, OffsiteCard],
   template: `
     <app-storage
       heading="Copies elsewhere"
@@ -96,6 +97,8 @@ import { ReplicationDialog, type ReplicationDialogData } from './replication-dia
           else.
         </p>
         <pre class="key">{{ d.key }}</pre>
+
+        <app-offsite-card [datasets]="d.datasets" />
 
         @if (d.backup; as b) {
           <h2 class="settings-title">This box's settings</h2>
