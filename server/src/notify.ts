@@ -7,7 +7,8 @@
  * (a blip is not worth a phone buzzing), only what the person asked for
  * (`minSeverity`), never the same alert twice, and one quiet "it's over" when
  * something that was pushed clears. The tag is the alert's key, so a
- * notification replaces its own earlier one instead of stacking.
+ * notification replaces its own earlier one instead of stacking. What is too
+ * quiet for that is gathered into one notification a week (`quiet`).
  */
 import type { Alert, Alerts } from '../../shared/nas.ts';
 import type { NotifySettings, NotifySettingsInput, NotifySeverity } from '../../shared/types.ts';
@@ -21,9 +22,10 @@ const PREFS = (userId: number) => `notify:${userId}`;
 interface Prefs {
   minSeverity: NotifySeverity;
   nasAlerts: boolean;
+  digest: boolean;
 }
 
-const DEFAULTS: Prefs = { minSeverity: 'warning', nasAlerts: true };
+const DEFAULTS: Prefs = { minSeverity: 'warning', nasAlerts: true, digest: true };
 
 export function readPrefs(settings: Settings, userId: number): Prefs {
   const raw = settings.get(PREFS(userId));
@@ -33,6 +35,7 @@ export function readPrefs(settings: Settings, userId: number): Prefs {
     return {
       minSeverity: p.minSeverity && p.minSeverity in RANK ? p.minSeverity : DEFAULTS.minSeverity,
       nasAlerts: typeof p.nasAlerts === 'boolean' ? p.nasAlerts : DEFAULTS.nasAlerts,
+      digest: typeof p.digest === 'boolean' ? p.digest : DEFAULTS.digest,
     };
   } catch {
     return { ...DEFAULTS };
@@ -49,13 +52,17 @@ export function writePrefs(settings: Settings, userId: number, input: NotifySett
     if (typeof input.nasAlerts !== 'boolean') throw new Error('nasAlerts must be true or false');
     now.nasAlerts = input.nasAlerts;
   }
+  if (input.digest !== undefined) {
+    if (typeof input.digest !== 'boolean') throw new Error('digest must be true or false');
+    now.digest = input.digest;
+  }
   settings.set(PREFS(userId), JSON.stringify(now));
   return now;
 }
 
 export function settingsFor(push: Push, settings: Settings, userId: number, endpoint?: string): NotifySettings {
   const p = readPrefs(settings, userId);
-  return { supported: push.supported, publicKey: push.publicKey, devices: push.devices(userId, endpoint), minSeverity: p.minSeverity, nasAlerts: p.nasAlerts };
+  return { supported: push.supported, publicKey: push.publicKey, devices: push.devices(userId, endpoint), minSeverity: p.minSeverity, nasAlerts: p.nasAlerts, digest: p.digest };
 }
 
 /** What a change in the alert list means for the people watching it. Pure, so the rules can be tested without a NAS. */
@@ -74,6 +81,16 @@ export function decide(previousNotified: Set<string>, alerts: Alerts, minSeverit
   return { raised, cleared };
 }
 
+/**
+ * What stays below a person's line: open, confirmed, not acknowledged, and too quiet to have been pushed. Once a
+ * week these go out as one notification, so "a newer release is out" is heard without every such thing buzzing.
+ */
+export function quiet(alerts: Alerts, minSeverity: NotifySeverity): Alert[] {
+  return alerts.open.filter((a) => a.confirmed && !a.ackedAt && RANK[a.severity] < RANK[minSeverity]);
+}
+
+export const DIGEST_EVERY_MS = 7 * 86_400_000;
+const DIGEST = (userId: number) => `notify:digest:${userId}`;
 const NOTIFIED = 'notify:nas:notified';
 
 export interface WatchDeps {
@@ -114,6 +131,26 @@ export async function watchOnce(deps: WatchDeps, now = Date.now()): Promise<{ se
     }
     for (const a of cleared) {
       sent += await deps.push.send([admin.id], { title: `Over: ${a.title}`, body: 'The box says this is fine again.', severity: 'info', tag: `nas:${a.key}`, link: '/storage' }, now);
+    }
+    if (!prefs.digest) continue;
+    // the week starts when this account is first seen, so the first digest is a week away and never a burst on day one
+    const last = Number(deps.settings.get(DIGEST(admin.id)));
+    if (!last) deps.settings.set(DIGEST(admin.id), String(now));
+    else if (now - last >= DIGEST_EVERY_MS) {
+      deps.settings.set(DIGEST(admin.id), String(now));
+      const rest = quiet(alerts, prefs.minSeverity);
+      if (rest.length)
+        sent += await deps.push.send(
+          [admin.id],
+          {
+            title: rest.length === 1 ? rest[0].title : `${rest.length} things worth knowing about the NAS`,
+            body: rest.length === 1 ? (rest[0].detail ?? 'Open Storage to see more.') : rest.map((a) => a.title).join(' · '),
+            severity: 'info',
+            tag: 'nas:digest',
+            link: '/storage',
+          },
+          now,
+        );
     }
   }
   // what is still open and was told to somebody stays remembered; anything cleared is forgotten, so it can be told again if it returns

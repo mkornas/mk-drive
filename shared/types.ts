@@ -224,12 +224,30 @@ export interface NotifySettings {
   minSeverity: NotifySeverity;
   /** Push what the NAS says is wrong (admins only; the drive has nothing else to push yet). */
   nasAlerts: boolean;
+  /** Once a week, one notification naming what is open on the NAS but quieter than `minSeverity`. */
+  digest: boolean;
 }
 
 /** `PUT /api/notifications`. */
 export interface NotifySettingsInput {
   minSeverity?: NotifySeverity;
   nasAlerts?: boolean;
+  digest?: boolean;
+}
+
+/**
+ * `GET`/`PUT /api/heartbeat` (admins): an address the drive fetches every few minutes for as long as it runs. Something
+ * outside the house that expects those requests (a healthchecks.io check, an Uptime Kuma push monitor) is then what
+ * says the box went quiet — the box cannot say that about itself.
+ */
+export interface Heartbeat {
+  /** null = off. */
+  url: string | null;
+  everyMinutes: number;
+  /** The last request, whether it was answered with a 2xx, and what went wrong when it was not. */
+  lastAt: string | null;
+  lastOk: boolean | null;
+  lastError: string | null;
 }
 
 /** `POST /api/notifications/subscribe`: what `PushSubscription.toJSON()` gives. */

@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Alert, Alerts } from '../../shared/nas.ts';
-import { decide, readPrefs, settingsFor, watchOnce, writePrefs } from '../src/notify.ts';
+import { decide, DIGEST_EVERY_MS, quiet, readPrefs, settingsFor, watchOnce, writePrefs } from '../src/notify.ts';
 import { deviceName, isPushEndpoint, Push } from '../src/push.ts';
 import { Settings } from '../src/settings.ts';
 import { openDb } from '../src/db.ts';
@@ -118,13 +118,13 @@ test('preferences: a sane default, only the values that exist, and nothing cross
   const { dir, db, settings, users, push } = await fixture();
   try {
     const me = await users.create({ email: 'admin@example.com', name: 'A', role: 'admin', password: 'a-long-enough-password' });
-    assert.deepEqual(readPrefs(settings, me.id), { minSeverity: 'warning', nasAlerts: true });
+    assert.deepEqual(readPrefs(settings, me.id), { minSeverity: 'warning', nasAlerts: true, digest: true });
     writePrefs(settings, me.id, { minSeverity: 'critical' });
-    assert.deepEqual(readPrefs(settings, me.id), { minSeverity: 'critical', nasAlerts: true });
+    assert.deepEqual(readPrefs(settings, me.id), { minSeverity: 'critical', nasAlerts: true, digest: true });
     writePrefs(settings, me.id, { nasAlerts: false });
-    assert.deepEqual(readPrefs(settings, me.id), { minSeverity: 'critical', nasAlerts: false });
+    assert.deepEqual(readPrefs(settings, me.id), { minSeverity: 'critical', nasAlerts: false, digest: true });
     assert.throws(() => writePrefs(settings, me.id, { minSeverity: 'loud' as never }), /critical, warning or info/);
-    assert.deepEqual(readPrefs(settings, me.id + 99), { minSeverity: 'warning', nasAlerts: true });
+    assert.deepEqual(readPrefs(settings, me.id + 99), { minSeverity: 'warning', nasAlerts: true, digest: true });
     assert.equal(settingsFor(push, settings, me.id).minSeverity, 'critical');
   } finally {
     db.close();
@@ -166,6 +166,48 @@ test('a pass over the alerts tells each admin once, keeps what is open, and forg
     sent.length = 0;
     const broken = { ...deps, alerts: async () => { throw new Error('the agent is older than alerts'); } };
     assert.deepEqual(await watchOnce(broken), { sent: 0 }, 'an agent without the verb is quiet, not a crash');
+  } finally {
+    db.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('once a week, what was too quiet to push goes out as one notification', async () => {
+  const { dir, db, settings, users, push } = await fixture();
+  try {
+    const admin = await users.create({ email: 'admin@example.com', name: 'A', role: 'admin', password: 'a-long-enough-password' });
+    const off = await users.create({ email: 'off@example.com', name: 'B', role: 'admin', password: 'a-long-enough-password' });
+    writePrefs(settings, off.id, { digest: false });
+    const sent: { userIds: number[]; title: string; body: string; tag?: string }[] = [];
+    const fake = { ...push, send: async (userIds: number[], n: { title: string; body: string; tag?: string }) => (sent.push({ userIds, ...n }), 1) } as unknown as Push;
+    const update = alert({ key: 'update:available', severity: 'info', title: 'mk-nas 0.9.5 is out', detail: 'Storage installs it.' });
+    const bare = alert({ key: 'dataset:tank/backups:snapshots', severity: 'info', title: 'tank/backups has no snapshots' });
+    const seen = alert({ key: 'update:check', severity: 'info', title: 'The box could not check for updates', ackedAt: '2026-09-16T10:00:00.000Z' });
+    const fresh = alert({ key: 'x', severity: 'info', title: 'too young', confirmed: false });
+    let live = alerts([update, bare, seen, fresh]);
+    assert.deepEqual(quiet(live, 'warning').map((a) => a.key), ['update:available', 'dataset:tank/backups:snapshots'], 'acknowledged and unconfirmed ones are left out');
+    assert.deepEqual(quiet(live, 'info'), [], 'someone who is pushed everything has nothing left over');
+    const deps = { push: fake, settings, users, alerts: async () => live };
+    const t0 = Date.parse('2026-11-11T12:00:00Z');
+
+    await watchOnce(deps, t0);
+    assert.equal(sent.length, 0, 'the first week starts now');
+    await watchOnce(deps, t0 + DIGEST_EVERY_MS - 60_000);
+    assert.equal(sent.length, 0);
+    await watchOnce(deps, t0 + DIGEST_EVERY_MS);
+    assert.deepEqual(sent, [
+      { userIds: [admin.id], title: '2 things worth knowing about the NAS', body: 'mk-nas 0.9.5 is out · tank/backups has no snapshots', severity: 'info', tag: 'nas:digest', link: '/storage' },
+    ]);
+    sent.length = 0;
+    await watchOnce(deps, t0 + DIGEST_EVERY_MS + 60_000);
+    assert.equal(sent.length, 0, 'not again until next week');
+    live = alerts([update]);
+    await watchOnce(deps, t0 + 2 * DIGEST_EVERY_MS);
+    assert.deepEqual(sent.map((s) => [s.title, s.body]), [['mk-nas 0.9.5 is out', 'Storage installs it.']], 'one thing speaks for itself');
+    sent.length = 0;
+    live = alerts([]);
+    await watchOnce(deps, t0 + 3 * DIGEST_EVERY_MS);
+    assert.equal(sent.length, 0, 'a week with nothing to say is silent');
   } finally {
     db.close();
     await rm(dir, { recursive: true, force: true });
