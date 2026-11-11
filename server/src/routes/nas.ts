@@ -51,6 +51,9 @@ import type {
   Update,
   Version,
   ZfsEvent,
+  Offsite,
+  OffsiteSetArgs,
+  OffsiteSnapshot,
   SmbSession,
 } from '../../../shared/nas.ts';
 import type { ShareAccess } from '../../../shared/types.ts';
@@ -344,6 +347,43 @@ export function registerNasRoutes(app: FastifyInstance, nas: NasClient, location
     audit(req, 'nas.snapshot.rollback', r);
     return r;
   });
+  // ---- the data itself, off the box ----
+  app.get('/api/nas/offsite', async (req): Promise<Offsite> => {
+    admin(req);
+    return nas.call('offsite');
+  });
+  /** The storage keys and the repository password pass through to the agent and are never written to the audit. */
+  app.put('/api/nas/offsite', async (req): Promise<Offsite & { password?: string }> => {
+    admin(req);
+    const args = pick<OffsiteSetArgs>(req.body, ['repository', 'datasets', 'schedule', 'credentials', 'password']);
+    const o = await nas.call('offsite.set', args);
+    audit(req, 'nas.offsite.set', { repository: o.repository, datasets: o.datasets, schedule: o.schedule });
+    return o;
+  });
+  app.delete('/api/nas/offsite', async (req): Promise<Offsite> => {
+    admin(req);
+    const o = await nas.call('offsite.remove');
+    audit(req, 'nas.offsite.remove', {});
+    return o;
+  });
+  app.post('/api/nas/offsite/run', async (req): Promise<Job> => {
+    admin(req);
+    const job = await nas.call('offsite.run');
+    audit(req, 'nas.offsite.run', { job: job.id });
+    return job;
+  });
+  app.get('/api/nas/offsite/snapshots', async (req): Promise<OffsiteSnapshot[]> => {
+    admin(req);
+    return nas.call('offsite.snapshots');
+  });
+  app.post('/api/nas/offsite/restore', async (req): Promise<Job> => {
+    admin(req);
+    const args = pick<{ snapshot: string; dataset: string }>(req.body, ['snapshot', 'dataset']);
+    const job = await nas.call('offsite.restore', args);
+    audit(req, 'nas.offsite.restore', { ...args, job: job.id });
+    return job;
+  });
+
   // ---- who is connected ----
   /** SMB sessions as Samba reports them; `client` is what the network's controller calls that address, when one is set up. */
   app.get('/api/nas/sessions', async (req): Promise<(SmbSession & { client: string | null })[]> => {

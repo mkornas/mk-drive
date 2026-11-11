@@ -417,6 +417,22 @@ const answers = {
   }),
   shares: () => shares,
   users: () => [{ name: 'admin', hasPassword: true, createdAt: ago(500) }],
+  sessions: () => [
+    { user: 'admin', address: '192.0.2.20', shares: ['documents', 'photos'], since: ago(3), dialect: 'SMB3_11', encrypted: true },
+    { user: 'admin', address: '192.0.2.31', shares: ['backups'], since: ago(0.2), dialect: 'SMB3_02', encrypted: false },
+  ],
+  offsite: () => offsite,
+  'offsite.set': (a) => {
+    const made = offsite.repository ? undefined : 'q7Jm2Zt9vXw4LkR8sNc1HbY6pDfG3uAe';
+    offsite = { ...offsite, repository: a.repository, datasets: a.datasets, schedule: a.schedule ?? 'daily', credentials: Object.keys(a.credentials ?? {}).sort(), hasPassword: true };
+    return { ...offsite, ...(made ? { password: made } : {}) };
+  },
+  'offsite.remove': () => (offsite = { ...offsite, repository: null, datasets: [], credentials: [], hasPassword: false, lastRunAt: null, lastResult: null, lastMessage: null }),
+  'offsite.run': () => {
+    offsite = { ...offsite, lastRunAt: new Date().toISOString(), lastResult: 'ok', lastMessage: '18 204 files in 2 datasets, 312 MB new' };
+    return { id: 99, kind: 'offsite', replicationId: null, pool: null, target: 'backup', state: 'done', startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), progress: 100, bytes: 0, total: null, message: offsite.lastMessage };
+  },
+  'offsite.snapshots': () => offsite.datasets.flatMap((d) => [1, 25, 49].map((h, i) => ({ id: `${i}a3f9c2e17b4`, time: ago(h), dataset: d }))),
   replications: () => replications,
   'replication.key': () => ({ publicKey: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample mk-nas@nas' }),
   'pool.importable': () => [],
@@ -564,6 +580,21 @@ Object.assign(answers, {
     return p;
   },
 });
+
+let offsite = EMPTY
+  ? { available: true, repository: null, datasets: [], schedule: 'daily', credentials: [], hasPassword: false, lastRunAt: null, lastResult: null, lastMessage: null, running: null }
+  : {
+      available: true,
+      repository: 's3:https://s3.example.com/nas-backup/box',
+      datasets: ['tank/documents', 'tank/photos'],
+      schedule: 'daily',
+      credentials: ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'],
+      hasPassword: true,
+      lastRunAt: ago(7),
+      lastResult: 'ok',
+      lastMessage: '18 204 files in 2 datasets, 312 MB new',
+      running: null,
+    };
 
 const failOnce = new Set((process.env.FAKE_NAS_FAIL_ONCE ?? '').split(',').filter(Boolean));
 createServer((c) => {

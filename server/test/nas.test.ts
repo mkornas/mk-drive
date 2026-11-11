@@ -68,6 +68,9 @@ function fakeAgent(path: string): Promise<Server> {
           });
         else if (req.verb === 'version')
           reply({ ok: true, result: { agent: agentVersion, contract: agentContract, node: 't', zfs: null, smartctl: null, hostname: 'nas' } });
+        else if (req.verb === 'offsite.set')
+          reply({ ok: true, result: { available: true, repository: req.args?.repository, datasets: req.args?.datasets, schedule: 'daily', credentials: ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'], hasPassword: true, lastRunAt: null, lastResult: null, lastMessage: null, running: null, password: 'made-on-the-box' } });
+        else if (req.verb === 'offsite.restore') reply({ ok: true, result: { id: 7, kind: 'offsite', target: `restore ${String(req.args?.snapshot)} → ${String(req.args?.dataset)}`, state: 'running' } });
         else if (req.verb === 'sessions')
           reply({ ok: true, result: [{ user: 'alex', address: '192.0.2.20', shares: ['files'], since: null, dialect: 'SMB3_11', encrypted: true }] });
         else if (req.verb === 'users') reply({ ok: true, result: smbUsers });
@@ -449,6 +452,23 @@ test('sessions: who is connected, the address without a name while no console is
   const bad = await app.inject({ method: 'PUT', url: '/api/unifi', headers: { cookie: admin, 'content-type': 'application/json' }, payload: { url: 'http://192.0.2.1', key: 'k'.repeat(32) } });
   assert.equal(bad.statusCode, 400);
   assert.match(bad.json<{ message: string }>().message, /https only/);
+});
+
+test('off-site backup: the keys reach the agent and nothing else; the made password comes back once; admins only', async () => {
+  const json = { 'content-type': 'application/json' };
+  const body = { repository: 's3:https://s3.example.com/bucket', datasets: ['tank/Files'], credentials: { AWS_ACCESS_KEY_ID: 'AKIDEXAMPLE', AWS_SECRET_ACCESS_KEY: 'very-secret-key' }, extra: 'dropped' };
+  assert.equal((await app.inject({ method: 'PUT', url: '/api/nas/offsite', headers: { cookie: member, ...json }, payload: body })).statusCode, 403);
+  seen.length = 0;
+  const res = await app.inject({ method: 'PUT', url: '/api/nas/offsite', headers: { cookie: admin, ...json }, payload: body });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.equal(res.json<{ password?: string }>().password, 'made-on-the-box');
+  const { extra: _extra, ...sent } = body;
+  assert.deepEqual(seen.find((r) => r.verb === 'offsite.set')?.args, sent, "only the verb's keys");
+  const log = await app.inject({ url: '/api/audit', headers: { cookie: admin } });
+  assert.ok(!log.body.includes('very-secret-key') && !log.body.includes('AKIDEXAMPLE') && !log.body.includes('made-on-the-box'), 'no key and no password in the audit');
+  assert.match(log.body, /nas\.offsite\.set/);
+  const back = await app.inject({ method: 'POST', url: '/api/nas/offsite/restore', headers: { cookie: admin, ...json }, payload: { snapshot: 'abcdef012345', dataset: 'tank/Files' } });
+  assert.equal(back.json<{ target: string }>().target, 'restore abcdef012345 → tank/Files');
 });
 
 test('power: restart needed and running work, whether the request came through the tunnel; reboot and shutdown with the name typed; admins only', async () => {
