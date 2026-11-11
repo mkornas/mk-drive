@@ -2,10 +2,11 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { MkButton } from '@mk-kit/ui/button';
 import { MkCard, MkTag } from '@mk-kit/ui/data';
 import { MkAlert, MkDialogService, MkToastService } from '@mk-kit/ui/feedback';
-import { MkButtonToggle, MkButtonToggleGroup, MkSwitch } from '@mk-kit/ui/forms';
+import { MkButtonToggle, MkButtonToggleGroup, MkFormField, MkInput, MkSwitch } from '@mk-kit/ui/forms';
 import { MkIcon } from '@mk-kit/ui/icon';
 import { MkSpinner } from '@mk-kit/ui/status';
-import type { NotifySeverity, PushDevice } from '../../../../../shared/types';
+import type { Heartbeat, NotifySeverity, PushDevice } from '../../../../../shared/types';
+import { ApiService, errorMessage } from '../../core/api.service';
 import { DriveService } from '../../core/drive.service';
 import { PushService } from '../../core/push.service';
 import { ago, dateTime } from '../../core/format';
@@ -21,7 +22,7 @@ import { SettingsShell } from './shell';
 @Component({
   selector: 'app-notifications-settings',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [SettingsShell, MkButton, MkCard, MkTag, MkAlert, MkSwitch, MkButtonToggleGroup, MkButtonToggle, MkIcon, MkSpinner],
+  imports: [SettingsShell, MkButton, MkCard, MkTag, MkAlert, MkSwitch, MkFormField, MkInput, MkButtonToggleGroup, MkButtonToggle, MkIcon, MkSpinner],
   template: `
     <app-settings heading="Notifications" description="Have this drive wake you when something needs you, on the browsers you choose.">
       @if (push.settings(); as s) {
@@ -133,8 +134,54 @@ import { SettingsShell } from './shell';
                 </span>
               </span>
             </label>
+            @if (severity() !== 'info') {
+              <label class="row row--next">
+                <mk-switch [checked]="digest()" [disabled]="saving() || !nasAlerts()" (checkedChange)="setDigest($any($event))" aria-label="A weekly summary of the quiet ones" />
+                <span class="row__text">
+                  <span class="row__title">A weekly summary of the rest</span>
+                  <span class="muted small">
+                    What is open but too quiet for a notification of its own — a newer release, a dataset without snapshots — once a week, as one
+                    notification. Nothing is sent in a week with nothing to say.
+                  </span>
+                </span>
+              </label>
+            }
           }
         </mk-card>
+
+        @if (drive.isAdmin()) {
+          <mk-card class="block">
+            <h2>When the drive itself goes quiet</h2>
+            <p class="muted small lead">
+              Everything above is sent by this drive, so it cannot tell you that it is off: no power, a hung box, no network. Give it the address of
+              a check somewhere else (healthchecks.io, an Uptime Kuma push monitor, a script on another machine) and it fetches that address every
+              {{ beat()?.everyMinutes ?? 5 }} minutes. The other side is what tells you when the requests stop.
+            </p>
+            <mk-form-field label="Address to fetch" hint="Empty turns it off. Only the request itself is sent, nothing about the drive.">
+              <input
+                mkInput
+                type="url"
+                inputmode="url"
+                autocomplete="off"
+                placeholder="https://…"
+                [value]="beatUrl()"
+                (input)="beatUrl.set($any($event.target).value)"
+                (keydown.enter)="saveBeat()"
+              />
+            </mk-form-field>
+            <div class="actions">
+              <button mkButton size="sm" [loading]="beatSaving()" [disabled]="beatUrl().trim() === (beat()?.url ?? '')" (click)="saveBeat()">Save and try it</button>
+              @if (beat(); as b) {
+                @if (b.url && b.lastAt) {
+                  <mk-tag size="sm" [tone]="b.lastOk ? 'success' : 'danger'">{{ b.lastOk ? 'answered' : 'no answer' }}</mk-tag>
+                  <span class="muted small">{{ f.ago(ms(b.lastAt)) }}{{ b.lastOk ? '' : ' — ' + b.lastError }}</span>
+                } @else if (!b.url) {
+                  <span class="muted small">Off.</span>
+                }
+              }
+            </div>
+          </mk-card>
+        }
       } @else if (push.error()) {
         <mk-alert tone="danger" title="Could not load your notification settings">{{ push.error() }}</mk-alert>
       } @else {
@@ -172,6 +219,17 @@ import { SettingsShell } from './shell';
       }
       .row__title {
         font-weight: 500;
+      }
+      .row--next {
+        margin-top: var(--mk-space-4);
+      }
+      /* its text is long: it takes the rest of the line instead of wrapping under the switch */
+      .row--next .row__text {
+        flex: 1;
+      }
+      .lead {
+        margin: 0 0 var(--mk-space-4);
+        max-width: 70ch;
       }
       .actions {
         display: flex;
@@ -239,6 +297,11 @@ export class NotificationsPage {
 
   protected readonly severity = computed<NotifySeverity>(() => this.push.settings()?.minSeverity ?? 'warning');
   protected readonly nasAlerts = computed(() => this.push.settings()?.nasAlerts ?? false);
+  protected readonly digest = computed(() => this.push.settings()?.digest ?? false);
+  private readonly api = inject(ApiService);
+  protected readonly beat = signal<Heartbeat | null>(null);
+  protected readonly beatUrl = signal('');
+  protected readonly beatSaving = signal(false);
 
   constructor() {
     void this.load();
@@ -247,6 +310,30 @@ export class NotificationsPage {
   private async load(): Promise<void> {
     await this.drive.ready();
     await this.push.refresh();
+    if (!this.drive.isAdmin()) return;
+    try {
+      const b = await this.api.heartbeat.get();
+      this.beat.set(b);
+      this.beatUrl.set(b.url ?? '');
+    } catch {
+      /* the card stays empty; saving says what is wrong */
+    }
+  }
+
+  async saveBeat(): Promise<void> {
+    this.beatSaving.set(true);
+    try {
+      const b = await this.api.heartbeat.set(this.beatUrl().trim());
+      this.beat.set(b);
+      this.beatUrl.set(b.url ?? '');
+      if (!b.url) this.toast.success('Turned off');
+      else if (b.lastOk) this.toast.success('Saved — the other side answered');
+      else this.toast.warning(`Saved, but the address did not answer: ${b.lastError}`);
+    } catch (e) {
+      this.toast.danger(errorMessage(e));
+    } finally {
+      this.beatSaving.set(false);
+    }
   }
 
   async toggle(): Promise<void> {
@@ -296,7 +383,12 @@ export class NotificationsPage {
     await this.save({ nasAlerts });
   }
 
-  private async save(input: { minSeverity?: NotifySeverity; nasAlerts?: boolean }): Promise<void> {
+  async setDigest(digest: boolean): Promise<void> {
+    if (digest === this.digest()) return;
+    await this.save({ digest });
+  }
+
+  private async save(input: { minSeverity?: NotifySeverity; nasAlerts?: boolean; digest?: boolean }): Promise<void> {
     this.saving.set(true);
     try {
       if (await this.push.save(input)) this.toast.success('Saved');

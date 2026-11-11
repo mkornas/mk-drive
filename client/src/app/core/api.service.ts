@@ -23,6 +23,10 @@ import type {
   Share as NasShare,
   ShareSetArgs,
   Smart as NasSmart,
+  Offsite as NasOffsite,
+  OffsiteSetArgs,
+  OffsiteSnapshot,
+  SmbSession,
   SmbUser as NasSmbUser,
   Snapshot as NasSnapshot,
   System as NasSystem,
@@ -58,6 +62,9 @@ import type {
   Location,
   MarkedEntry,
   Meta,
+  Heartbeat,
+  Unifi,
+  UnifiInput,
   NotifySettings,
   NotifySettingsInput,
   OpResult,
@@ -79,6 +86,8 @@ import type {
 } from '../../../../shared/types';
 
 /** Thin typed wrapper over the JSON API. Paths are drive paths (`Docs/a/b`). */
+export type NasSession = SmbSession & { client: string | null };
+
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly http = inject(HttpClient);
@@ -182,6 +191,19 @@ export class ApiService {
     test: (): Promise<{ sent: number }> => this.post('/api/notifications/test', {}),
   };
 
+  // ---- the drive's sign of life (admin): an address fetched every few minutes, for something outside to miss ----
+  readonly heartbeat = {
+    get: (): Promise<Heartbeat> => this.get('/api/heartbeat'),
+    set: (url: string): Promise<Heartbeat> => firstValueFrom(this.http.put<Heartbeat>('/api/heartbeat', { url })),
+  };
+
+  // ---- names for addresses, from a UniFi console (admin, NAS mode) ----
+  readonly unifi = {
+    get: (): Promise<Unifi> => this.get('/api/unifi'),
+    set: (input: UnifiInput): Promise<Unifi> => firstValueFrom(this.http.put<Unifi>('/api/unifi', input)),
+    remove: (): Promise<Unifi> => this.delete('/api/unifi'),
+  };
+
   // ---- NAS mode (admin; only when the mk-nas socket is mounted) ----
   readonly nas = {
     version: (): Promise<NasVersion> => this.get('/api/nas/version'),
@@ -237,6 +259,16 @@ export class ApiService {
     shareAccess: (dataset?: string): Promise<ShareAccess> => this.get('/api/nas/shares/access', dataset ? new HttpParams().set('dataset', dataset) : undefined),
     removeShare: (dataset: string): Promise<{ removed: string }> => this.post('/api/nas/shares/remove', { dataset }),
     users: (): Promise<NasSmbUser[]> => this.get('/api/nas/users'),
+    // the data itself, off the box (an agent from 0.10.0)
+    offsite: (): Promise<NasOffsite> => this.get('/api/nas/offsite'),
+    setOffsite: (args: OffsiteSetArgs): Promise<NasOffsite & { password?: string }> =>
+      firstValueFrom(this.http.put<NasOffsite & { password?: string }>('/api/nas/offsite', args)),
+    removeOffsite: (): Promise<NasOffsite> => this.delete('/api/nas/offsite'),
+    runOffsite: (): Promise<NasJob> => this.post('/api/nas/offsite/run', {}),
+    offsiteSnapshots: (): Promise<OffsiteSnapshot[]> => this.get('/api/nas/offsite/snapshots'),
+    restoreOffsite: (snapshot: string, dataset: string): Promise<NasJob> => this.post('/api/nas/offsite/restore', { snapshot, dataset }),
+    /** Who is connected over SMB now; `client` is the network controller's name for the address, when one is set up. */
+    sessions: (): Promise<NasSession[]> => this.get('/api/nas/sessions'),
     // survive
     replaceDisk: (pool: string, old: string, disk: string, confirm: string): Promise<NasPool> =>
       this.post(`/api/nas/pools/${encodeURIComponent(pool)}/replace`, { old, disk, confirm }),
