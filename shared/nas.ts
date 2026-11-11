@@ -1,6 +1,7 @@
 /**
- * The mk-nasd contract, copied verbatim from mk-nas/shared/types.ts (keep in
- * sync by copying, not by hand-editing here). What /api/nas/* returns.
+ * The mk-nasd contract: what goes over /run/mk-nas.sock. mk-drive's
+ * server/src/routes/nas.ts types against this file; the agent implements it.
+ * Newline-delimited JSON, one Request per line, one Response per line.
  */
 
 export interface Request {
@@ -51,6 +52,12 @@ export type Verb =
   | 'backup.set'
   | 'backup.run'
   | 'backup.restore'
+  | 'offsite'
+  | 'offsite.set'
+  | 'offsite.remove'
+  | 'offsite.run'
+  | 'offsite.snapshots'
+  | 'offsite.restore'
   | 'policies'
   | 'pool.create'
   | 'pool.scrub'
@@ -67,6 +74,7 @@ export type Verb =
   | 'shares'
   | 'share.set'
   | 'share.remove'
+  | 'sessions'
   | 'users'
   | 'user.set'
   | 'user.smbPassword'
@@ -105,7 +113,7 @@ export interface Replication {
   /** Send the dataset's children too (zfs send -R). */
   recursive: boolean;
   schedule: ReplicationSchedule;
-  /** How many of the job's own repl-* snapshots to keep on each side. */
+  /** How many of the job's own repl-<id>-* snapshots to keep on each side. */
   keep: number;
   lastRunAt: string | null;
   lastResult: 'ok' | 'failed' | null;
@@ -180,6 +188,20 @@ export interface SmbUser {
   /** Set once user.smbPassword ran at least once. */
   hasPassword: boolean;
   createdAt: string;
+}
+
+/** Someone connected over SMB right now, as Samba itself reports it (`smbstatus`). */
+export interface SmbSession {
+  user: string;
+  /** Where the connection comes from: an IPv4 or IPv6 address, without the port. */
+  address: string;
+  /** The shares this session has open, by their SMB names. */
+  shares: string[];
+  /** When the oldest of those was opened; null when Samba did not say. */
+  since: string | null;
+  /** SMB3_11 and the like. */
+  dialect: string | null;
+  encrypted: boolean;
 }
 
 export type PoolLayout = 'single' | 'mirror' | 'raidz1' | 'raidz2';
@@ -632,7 +654,8 @@ export interface ZfsEvent {
 
 export interface Job {
   id: number;
-  kind: 'replication' | 'scrub' | 'resilver';
+  /** `offsite` (an agent from 0.10.0): a backup to the off-site repository, or a restore from it. */
+  kind: 'replication' | 'scrub' | 'resilver' | 'offsite';
   /** The replication's id. */
   replicationId: number | null;
   /** For a scrub or resilver: the pool. */
@@ -648,6 +671,45 @@ export interface Job {
   total: number | null;
   /** What was sent (full, incremental from X, resumed), the scan line a scrub or resilver ended with, or the error. */
   message: string | null;
+}
+
+export type OffsiteSchedule = 'manual' | 'daily' | 'weekly';
+
+/** The data itself, off the box: chosen datasets backed up to a restic repository in object storage or on a path. */
+export interface Offsite {
+  /** restic is installed on the box; without it nothing here works (`sudo apt install restic`). */
+  available: boolean;
+  /** `s3:https://host/bucket[/prefix]`, `b2:bucket[:prefix]` or an absolute path; null when not set up. */
+  repository: string | null;
+  datasets: string[];
+  schedule: OffsiteSchedule;
+  /** The names of the storage keys kept on the box (AWS_ACCESS_KEY_ID, …). Their values are never returned. */
+  credentials: string[];
+  /** The box knows the repository's password. */
+  hasPassword: boolean;
+  lastRunAt: string | null;
+  lastResult: 'ok' | 'failed' | null;
+  lastMessage: string | null;
+  /** The backup or restore running now. */
+  running: Job | null;
+}
+
+export interface OffsiteSetArgs {
+  repository: string;
+  datasets: string[];
+  /** Defaults to daily. */
+  schedule?: OffsiteSchedule;
+  /** The storage's keys, by the names restic reads; left out, the stored ones are kept while the repository stays the same. */
+  credentials?: Record<string, string>;
+  /** The password of a repository that exists already. Left out for a new one: the agent makes it and returns it once. */
+  password?: string;
+}
+
+/** One dataset at one moment, as the repository holds it. */
+export interface OffsiteSnapshot {
+  id: string;
+  time: string;
+  dataset: string;
 }
 
 /** What each verb takes and returns. */
@@ -700,6 +762,18 @@ export interface Verbs {
   'backup.run': { args: Record<string, never>; result: ConfigBackup };
   /** Puts the settings from that dataset's backup back, then restarts the agent and the drive (the answer arrives first). `confirm` = the dataset name. */
   'backup.restore': { args: { dataset: string; confirm: string }; result: { restoring: true; files: string[]; takenAt: string } };
+  /** An agent before 0.10.0 does not know the offsite verbs. */
+  offsite: { args: Record<string, never>; result: Offsite };
+  /** Opens the repository (making it when it is not there) before anything is stored. `password` in the result only when the agent made it: shown once, to be written down. */
+  'offsite.set': { args: OffsiteSetArgs; result: Offsite & { password?: string } };
+  /** Forgets the repository and its keys on the box; what is stored there stays. */
+  'offsite.remove': { args: Record<string, never>; result: Offsite };
+  /** Starts a backup in its own process; `offsite` follows it. */
+  'offsite.run': { args: Record<string, never>; result: Job };
+  /** Asks the repository what it holds, newest first. */
+  'offsite.snapshots': { args: Record<string, never>; result: OffsiteSnapshot[] };
+  /** Brings a snapshot back into a new `restored-<stamp>` directory at the top of `dataset`; nothing is written over. */
+  'offsite.restore': { args: { snapshot: string; dataset: string }; result: Job };
   policies: { args: Record<string, never>; result: Policy[] };
   'pool.create': { args: PoolCreateArgs; result: Pool };
   /** Starts a scrub in the background and writes it down as a job; `jobs` with `pool` follows it. */
@@ -723,6 +797,8 @@ export interface Verbs {
   /** Creates or updates; regenerates smb.conf and the NFS exports and reloads the daemons. */
   'share.set': { args: ShareSetArgs; result: Share };
   'share.remove': { args: { dataset: string }; result: { removed: string } };
+  /** Who is connected over SMB right now; empty when Samba is not running. An agent before 0.10.0 does not know this verb. */
+  sessions: { args: Record<string, never>; result: SmbSession[] };
   users: { args: Record<string, never>; result: SmbUser[] };
   /** Makes sure the Unix and Samba user exist (no password yet). */
   'user.set': { args: { name: string }; result: SmbUser };
