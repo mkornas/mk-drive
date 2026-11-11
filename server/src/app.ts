@@ -16,6 +16,8 @@ import { registerAppPasswordRoutes } from './routes/app-passwords.ts';
 import { registerNotificationRoutes } from './routes/notifications.ts';
 import { Push } from './push.ts';
 import { watchAlerts } from './notify.ts';
+import { startHeartbeat } from './heartbeat.ts';
+import { registerHeartbeatRoutes } from './routes/heartbeat.ts';
 import { registerDavRoutes } from './routes/dav.ts';
 import { Connectors } from './connectors.ts';
 import { registerConnectorRoutes } from './routes/connectors.ts';
@@ -149,6 +151,12 @@ export async function createApp(cfg: Config, opts: { logger?: boolean } = {}): P
   // notifications: the browsers each account wants to be reached on
   const push = new Push(db, settings, { subject: cfg.vapidSubject, publicKey: cfg.vapidPublic, privateKey: cfg.vapidPrivate });
   registerNotificationRoutes(app, push, settings);
+  registerHeartbeatRoutes(app, settings, users);
+  // a sign of life for something outside to miss when it stops; nothing is sent until an admin gives an address
+  let stopHeartbeat: (() => void) | null = null;
+  app.addHook('onListen', async () => {
+    stopHeartbeat = startHeartbeat(settings, (m) => app.log.warn(m));
+  });
 
   let stopWatching: (() => void) | null = null;
   let nas: NasClient | null = null;
@@ -245,6 +253,7 @@ export async function createApp(cfg: Config, opts: { logger?: boolean } = {}): P
   app.addHook('onClose', async () => {
     closing = true;
     stopWatching?.();
+    stopHeartbeat?.();
     clearInterval(timer);
     db.close();
   });
