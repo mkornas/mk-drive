@@ -7,10 +7,10 @@ import { MkIcon } from '@mk-kit/ui/icon';
 import { MkEmptyState } from '@mk-kit/ui/status';
 import type { Share, SmbUser, Version } from '../../../../../shared/nas';
 import type { ShareAccessAccount } from '../../../../../shared/types';
-import { ApiService } from '../../core/api.service';
-import { lanName } from '../../core/format';
+import { ApiService, type NasSession } from '../../core/api.service';
+import { ago, lanName } from '../../core/format';
 import { StorageShell } from './shell';
-import { loader } from './load';
+import { loader, ms } from './load';
 import { ShareDialog, type ShareDialogData } from './share-dialog';
 
 /** What is handed out over the network, how to connect, who may open each SMB share, and who has an SMB password. */
@@ -84,6 +84,34 @@ import { ShareDialog, type ShareDialogData } from './share-dialog';
             <span class="mono">{{ lan(d.version.hostname) }}</span> works from Macs, Linux, phones and current Windows. Where a name does not resolve, use the
             box's IP address, or its name in your network's DNS, in its place.
           </p>
+        }
+
+        @if (d.sessions; as sessions) {
+          <h2>Connected now</h2>
+          @if (sessions.length === 0) {
+            <p class="muted">Nobody is connected over SMB.</p>
+          } @else {
+            <ul class="users sessions">
+              @for (c of sessions; track c.user + c.address) {
+                <li>
+                  <span class="session__who">{{ names().get(c.user) ?? c.user }}</span>
+                  <span class="muted">from</span>
+                  @if (c.client) {
+                    <span>{{ c.client }}</span>
+                    <span class="mono muted small">{{ c.address }}</span>
+                  } @else {
+                    <span class="mono">{{ c.address }}</span>
+                  }
+                  @if (c.shares.length) {
+                    <span class="muted small">{{ c.shares.join(', ') }}{{ c.since ? ' · since ' + f.ago(ms(c.since)) : '' }}</span>
+                  }
+                  @if (!c.encrypted) {
+                    <mk-tag size="sm" tone="neutral" title="This connection is signed but not encrypted">not encrypted</mk-tag>
+                  }
+                </li>
+              }
+            </ul>
+          }
         }
 
         <h2>Who can connect over SMB</h2>
@@ -171,6 +199,18 @@ import { ShareDialog, type ShareDialogData } from './share-dialog';
         display: grid;
         gap: var(--mk-space-1);
       }
+      .sessions {
+        margin-bottom: var(--mk-space-6);
+      }
+      .sessions li {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: var(--mk-space-1) var(--mk-space-2);
+      }
+      .session__who {
+        font-weight: 500;
+      }
       .small {
         font-size: var(--mk-font-size-xs);
       }
@@ -183,21 +223,25 @@ import { ShareDialog, type ShareDialogData } from './share-dialog';
 export class StorageSharesPage {
   private readonly api = inject(ApiService);
   protected readonly lan = lanName;
+  protected readonly f = { ago };
+  protected readonly ms = ms;
   private readonly dialog = inject(MkDialogService);
   private readonly toast = inject(MkToastService);
-  protected readonly q = loader<{ shares: Share[]; users: SmbUser[]; version: Version; accounts: ShareAccessAccount[] }>(async () => {
-    const [shares, users, version, access] = await Promise.all([
+  protected readonly q = loader<{ shares: Share[]; users: SmbUser[]; version: Version; accounts: ShareAccessAccount[]; sessions: NasSession[] | null }>(async () => {
+    const [shares, users, version, access, sessions] = await Promise.all([
       this.api.nas.shares(),
       this.api.nas.users(),
       this.api.nas.version(),
       // only for the names: without it the lists show SMB names
       this.api.nas.shareAccess().catch(() => null),
+      // an agent before 0.10.0 does not know who is connected: the section is left out
+      this.api.nas.sessions().catch(() => null),
     ]);
-    return { shares, users, version, accounts: access?.accounts ?? [] };
+    return { shares, users, version, accounts: access?.accounts ?? [], sessions };
   });
 
   /** SMB name → the account's name, where an account has it. */
-  private readonly names = computed(() => new Map((this.q.data()?.accounts ?? []).map((a) => [a.smbName, a.name])));
+  protected readonly names = computed(() => new Map((this.q.data()?.accounts ?? []).map((a) => [a.smbName, a.name])));
 
   protected who(s: Share): string {
     return (s.smbAccess ?? []).map((a) => `${this.names().get(a.user) ?? a.user} (${a.level === 'write' ? 'read and write' : 'read'})`).join(', ');

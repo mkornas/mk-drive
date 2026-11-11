@@ -10,6 +10,7 @@ import { ApiService, errorMessage } from '../../core/api.service';
 import { StorageShell } from './shell';
 import { loader, ms } from './load';
 import { TunnelCard } from './tunnel-card';
+import { UnifiCard } from './unifi-card';
 
 const REVERT_AFTER = 120;
 
@@ -22,7 +23,7 @@ const REVERT_AFTER = 120;
 @Component({
   selector: 'app-storage-network',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [StorageShell, MkButton, MkTag, MkAlert, MkCheckbox, MkFormField, MkInput, MkIcon, TunnelCard],
+  imports: [StorageShell, MkButton, MkTag, MkAlert, MkCheckbox, MkFormField, MkInput, MkIcon, TunnelCard, UnifiCard],
   template: `
     <app-storage
       heading="Network"
@@ -114,6 +115,7 @@ const REVERT_AFTER = 120;
         }
 
         <app-tunnel-card />
+        <app-unifi-card />
       }
     </app-storage>
   `,
