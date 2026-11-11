@@ -256,6 +256,32 @@ export interface PushSubscribeInput {
   keys: { p256dh: string; auth: string };
 }
 
+/**
+ * `GET`/`PUT`/`DELETE /api/unifi` (admins, NAS mode): a UniFi console the drive asks for the names of the network's
+ * clients, so the Storage pages can say "Alex's laptop" where the NAS only knows an address. Read-only on the console.
+ */
+export interface Unifi {
+  /** null = not set up. */
+  url: string | null;
+  /** The key is kept on the server and never sent back. */
+  hasKey: boolean;
+  /** SHA-256 of the console's certificate as it was when the address was saved; null when it verifies by itself. */
+  fingerprint: string | null;
+  /** The sites the key can see, by name. */
+  sites: string[];
+  /** How many clients had a name at the last read. */
+  clients: number | null;
+  lastAt: string | null;
+  lastOk: boolean | null;
+  lastError: string | null;
+}
+
+/** `PUT /api/unifi`. Without `key` the saved one is kept, when the address is the same. */
+export interface UnifiInput {
+  url: string;
+  key?: string;
+}
+
 export interface Meta {
   app: 'mk-drive';
   version: string;

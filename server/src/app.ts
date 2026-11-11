@@ -35,6 +35,8 @@ import { seedDemo, seedDemoUsers } from './demo.ts';
 import { HttpError } from './errors.ts';
 import { NasClient } from './nas.ts';
 import { migrateShareAccess, registerNasMonitorRoute, registerNasRoutes } from './routes/nas.ts';
+import { Unifi } from './unifi.ts';
+import { registerUnifiRoutes } from './routes/unifi.ts';
 import { registerSsoSettingsRoutes } from './routes/sso-settings.ts';
 
 /** What the browser may load for the app itself (the file endpoint has its own, stricter, rules). */
@@ -162,7 +164,10 @@ export async function createApp(cfg: Config, opts: { logger?: boolean } = {}): P
   let nas: NasClient | null = null;
   if (cfg.nasSocket) {
     nas = new NasClient(cfg.nasSocket);
-    registerNasRoutes(app, nas, locations, users);
+    // names for the addresses the NAS sees, from the network's own controller when an admin set one up
+    const unifi = new Unifi(settings);
+    registerUnifiRoutes(app, unifi, users);
+    registerNasRoutes(app, nas, locations, users, unifi);
     // shares from before per-share SMB lists become admins-only, once the server is up; not awaited, the agent may not
     // answer yet (GET /api/nas/shares does it again)
     const agent = nas;

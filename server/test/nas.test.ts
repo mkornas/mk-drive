@@ -68,6 +68,8 @@ function fakeAgent(path: string): Promise<Server> {
           });
         else if (req.verb === 'version')
           reply({ ok: true, result: { agent: agentVersion, contract: agentContract, node: 't', zfs: null, smartctl: null, hostname: 'nas' } });
+        else if (req.verb === 'sessions')
+          reply({ ok: true, result: [{ user: 'alex', address: '192.0.2.20', shares: ['files'], since: null, dialect: 'SMB3_11', encrypted: true }] });
         else if (req.verb === 'users') reply({ ok: true, result: smbUsers });
         else if (req.verb === 'user.smbPassword') {
           smbUsers = [{ name: String(req.args?.name), hasPassword: true, createdAt: 'now' }];
@@ -435,6 +437,18 @@ test('system: the glance, admins only', async () => {
   assert.equal(res.statusCode, 200);
   assert.equal(res.json<{ hostname: string }>().hostname, 'nas');
   assert.equal((await app.inject({ url: '/api/nas/system', headers: { cookie: member } })).statusCode, 403);
+});
+
+test('sessions: who is connected, the address without a name while no console is set up; admins only', async () => {
+  const res = await app.inject({ url: '/api/nas/sessions', headers: { cookie: admin } });
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json(), [{ user: 'alex', address: '192.0.2.20', shares: ['files'], since: null, dialect: 'SMB3_11', encrypted: true, client: null }]);
+  assert.equal((await app.inject({ url: '/api/nas/sessions', headers: { cookie: member } })).statusCode, 403);
+  assert.equal((await app.inject({ url: '/api/unifi', headers: { cookie: member } })).statusCode, 403);
+  assert.equal((await app.inject({ url: '/api/unifi', headers: { cookie: admin } })).json<{ url: string | null }>().url, null);
+  const bad = await app.inject({ method: 'PUT', url: '/api/unifi', headers: { cookie: admin, 'content-type': 'application/json' }, payload: { url: 'http://192.0.2.1', key: 'k'.repeat(32) } });
+  assert.equal(bad.statusCode, 400);
+  assert.match(bad.json<{ message: string }>().message, /https only/);
 });
 
 test('power: restart needed and running work, whether the request came through the tunnel; reboot and shutdown with the name typed; admins only', async () => {

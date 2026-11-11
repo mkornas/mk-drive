@@ -51,8 +51,10 @@ import type {
   Update,
   Version,
   ZfsEvent,
+  SmbSession,
 } from '../../../shared/nas.ts';
 import type { ShareAccess } from '../../../shared/types.ts';
+import type { Unifi } from '../unifi.ts';
 import { sessionOnly } from './app-passwords.ts';
 
 function pick<T extends object>(body: unknown, keys: (keyof T)[]): T {
@@ -118,7 +120,7 @@ export async function migrateShareAccess(nas: NasClient, users: Users, who: { us
   return out;
 }
 
-export function registerNasRoutes(app: FastifyInstance, nas: NasClient, locations: Locations, users: Users): void {
+export function registerNasRoutes(app: FastifyInstance, nas: NasClient, locations: Locations, users: Users, unifi: Unifi | null = null): void {
   const admin = (req: FastifyRequest) => {
     if (req.identity?.role !== 'admin') throw forbidden('admins only');
     sessionOnly(req);
@@ -341,6 +343,13 @@ export function registerNasRoutes(app: FastifyInstance, nas: NasClient, location
     const r = await nas.call('snapshot.rollback', args);
     audit(req, 'nas.snapshot.rollback', r);
     return r;
+  });
+  // ---- who is connected ----
+  /** SMB sessions as Samba reports them; `client` is what the network's controller calls that address, when one is set up. */
+  app.get('/api/nas/sessions', async (req): Promise<(SmbSession & { client: string | null })[]> => {
+    admin(req);
+    const [sessions, names] = await Promise.all([nas.call('sessions'), unifi?.names() ?? new Map<string, string>()]);
+    return sessions.map((s) => ({ ...s, client: names.get(s.address) ?? null }));
   });
   // ---- share ----
   app.get('/api/nas/shares', async (req): Promise<Share[]> => {
